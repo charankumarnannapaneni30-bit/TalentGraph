@@ -13,7 +13,7 @@ const schema = z.object({
   SUPABASE_STORAGE_BUCKET: z.string().min(1).default("candidate-documents"),
   GEMINI_API_KEY: z.string().optional(),
   GEMINI_MODEL: z.string().default("gemini-2.5-flash"),
-  GEMINI_MODEL_HEAVY: z.string().default("gemini-2.5-pro"),
+  GEMINI_MODEL_HEAVY: z.string().default("gemini-2.5-flash"),
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
   GITHUB_TOKEN: z.string().optional(),

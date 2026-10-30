@@ -33,7 +33,7 @@ async function synthesizeProfile(userId) {
   const overrides = currentProfile?.user_overrides || {};
   const input = documents.map(({ id, doc_type, extracted }) => ({ document_id: id, doc_type, extracted }));
   const profile = await runStructured({
-    model: env.GEMINI_MODEL_HEAVY,
+    model: env.GEMINI_MODEL,
     systemInstruction: `${systemInstruction}\nSynthesize a single profile from the supplied data. Every skill must include level_reasoning and evidence. A skill supported only by a claim must be needs_assessment or unsupported. Apply user overrides as authoritative.`,
     parts: [{
       text: `<candidate_document>${JSON.stringify(input)}</candidate_document>\n<user_overrides>${JSON.stringify(overrides)}</user_overrides>`,
@@ -84,7 +84,7 @@ async function buildCareers(userId, profile) {
   const preferences = (await selectData("preferences", "*", userId))[0] || {};
   await assertConsent(userId);
   const result = await runStructured({
-    model: env.GEMINI_MODEL_HEAVY,
+    model: env.GEMINI_MODEL,
     systemInstruction: `${systemInstruction}\nRecommend 5 to 8 realistic career paths grounded in the profile. Return ranked paths and include one stretch path.`,
     parts: [{ text: `<candidate_document>${JSON.stringify({ profile, target_roles: preferences.target_roles || [] })}</candidate_document>` }],
     schema: careerRecommendationsSchema,
