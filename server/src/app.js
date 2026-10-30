@@ -313,6 +313,7 @@ router.get("/jobs/matches", asyncRoute(async (req, res) => {
     min_score: z.coerce.number().int().min(0).max(100).default(0),
     location: z.string().max(100).optional(),
     company: z.string().max(100).optional(),
+    role: z.string().trim().min(2).max(120).optional(),
     remote: z.enum(["true", "false"]).optional(),
     sort: z.enum(["score", "recent"]).default("score"),
     page: z.coerce.number().int().min(1).default(1),
@@ -325,6 +326,7 @@ router.get("/jobs/matches", asyncRoute(async (req, res) => {
   query = query.or(`application_deadline.is.null,application_deadline.gte.${new Date().toISOString().slice(0, 10)}`, { referencedTable: "jobs" });
   if (filters.location) query = query.ilike("jobs.location", `%${filters.location}%`);
   if (filters.company) query = query.ilike("jobs.company_name", `%${filters.company}%`);
+  if (filters.role) query = query.ilike("jobs.title", `%${filters.role}%`);
   if (filters.remote) query = query.eq("jobs.is_remote", filters.remote === "true");
   query = query.order(filters.sort === "recent" ? "created_at" : "compatibility_score", { ascending: filters.sort === "recent" });
   const from = (filters.page - 1) * filters.limit;
@@ -442,6 +444,13 @@ router.patch("/notifications/:id/read", uuidParam("id"), asyncRoute(async (req, 
   if (error) throw new AppError(500, "DATABASE_ERROR", "Could not update this notification.");
   if (!data) throw new AppError(404, "NOT_FOUND", "Notification not found.");
   return send(res, data);
+}));
+router.delete("/notifications/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("notifications").delete()
+    .eq("user_id", req.user.id).eq("id", req.params.id).select("id").maybeSingle();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not delete this notification.");
+  if (!data) throw new AppError(404, "NOT_FOUND", "Notification not found.");
+  return send(res, { deleted: true });
 }));
 router.post("/notifications/read-all", validate(emptyBodySchema), asyncRoute(async (req, res) => {
   const { error } = await supabaseAdmin.from("notifications").update({ is_read: true }).eq("user_id", req.user.id).eq("is_read", false);

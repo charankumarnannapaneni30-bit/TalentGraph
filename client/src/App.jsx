@@ -7,7 +7,7 @@ import { z } from "zod";
 import {
   Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Check, ChevronRight, CircleHelp,
   FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, MessageSquareText,
-  Menu, Mic, MicOff, Search, Settings, ShieldCheck, Sparkles, Target, UploadCloud, UserRound, Video, Volume2, X,
+  Menu, Mic, MicOff, Search, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserRound, Video, Volume2, X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { api, apiJson } from "./lib/api";
@@ -218,21 +218,93 @@ function Dashboard({ session }) {
   return <div className="page-enter"><PageTitle eyebrow="YOUR WORKSPACE" title={`Good to see you, ${name.split(" ")[0]}`} description="Build your profile from real evidence and explore your next career move." action={<Link className="button button-primary" to="/app/documents"><UploadCloud size={17} /> Add evidence</Link>} />
     <Disclaimer />
     {error ? <LoadingError error={error} onRetry={refetch} /> : <><div className="welcome-panel"><div className="welcome-copy"><span className="welcome-spark"><Sparkles size={18} /></span><div><h2>Your career picture starts with evidence.</h2><p>Add a resume, project, certificate, or GitHub link. TalentGraph will help connect your skills to the work behind them.</p><Link to="/app/documents" className="text-link">Add your first evidence <ArrowRight size={16} /></Link></div></div><div className="welcome-art"><div className="art-ring"><div className="art-core"><Activity size={26} /></div></div><span className="art-orb orb-one"></span><span className="art-orb orb-two"></span><span className="art-orb orb-three"></span></div></div>
-      <div className="metric-grid"><Metric icon={FileText} label="Documents" value={documentCount} note="Evidence items" tone="blue" /><Metric icon={GraduationCap} label="Career paths" value={careers?.length || "—"} note={careers?.length ? "Recommendations ready" : "Build your profile first"} tone="purple" /><Metric icon={BriefcaseBusiness} label="Job matches" value={matches?.items?.length || "—"} note="Open opportunities" tone="green" /><Metric icon={Gauge} label="Profile status" value={profileStatus[0]} note={profileStatus[1]} tone="orange" /></div>
+      <div className="metric-grid"><Metric icon={FileText} label="Documents" value={documentCount} note="Evidence items" tone="blue" href="/app/documents" /><Metric icon={GraduationCap} label="Career paths" value={careers?.length || "—"} note={careers?.length ? "Recommendations ready" : "Build your profile first"} tone="purple" href="/app/careers" /><Metric icon={BriefcaseBusiness} label="Job matches" value={matches?.items?.length || "—"} note="Open opportunities" tone="green" href="/app/jobs" /><Metric icon={Gauge} label="Profile status" value={profileStatus[0]} note={profileStatus[1]} tone="orange" href="/app/profile" /></div>
+      <DashboardJobSearch profile={profile} initialMatches={matches?.items || []} />
       <div className="dashboard-grid"><section className="content-card"><div className="card-heading"><div><h3>Get started</h3><p>A few steps to make your profile useful</p></div><span className="step-count">01 / 03</span></div><div className="checklist"><Checklist done={documentCount > 0} title="Add career evidence" subtitle="Resume, projects, certificates, or GitHub" href="/app/documents" /><Checklist done={Boolean(data?.consent_ai_processing)} title="Review your AI consent" subtitle="You control whether your data is processed" href="/app/settings" /><Checklist done={Boolean(profile?.id)} title="Build your career profile" subtitle="Synthesize evidence and explore career paths" href="/app/profile" /></div></section><section className="content-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Your workspace at a glance</p></div><Activity size={19} className="muted-icon" /></div>{docs?.length ? <div className="resource-list">{docs.slice(0, 3).map((doc) => <article className="resource-row" key={doc.id}><span className="resource-icon"><FileText size={18} /></span><div><b>{doc.title || doc.original_filename || doc.doc_type}</b><small>{doc.doc_type} · {new Date(doc.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${doc.status}`}>{doc.status}</span></article>)}</div> : <div className="activity-empty"><span><Activity size={20} /></span><b>Your activity will show up here</b><p>Upload an item to begin building your career profile.</p></div>}</section></div></>}
   </div>;
 }
 
-function Metric({ icon: Icon, label, value, note, tone }) {
-  return <div className="metric-card"><span className={`metric-icon metric-${tone}`}><Icon size={18} /></span><div className="metric-label">{label}</div><strong>{value}</strong><small>{note}</small></div>;
+function Metric({ icon: Icon, label, value, note, tone, href }) {
+  return <div className="metric-card"><span className={`metric-icon metric-${tone}`}><Icon size={18} /></span><div className="metric-label">{label}</div><strong>{value}</strong><small>{note}</small><Link className="metric-link" to={href} aria-label={`Go to ${label}`} title={`Go to ${label}`}><ArrowRight size={15} /></Link></div>;
 }
 function Checklist({ done, title, subtitle, href }) {
   return <Link className="checklist-item" to={href}><span className={`check-circle ${done ? "checked" : ""}`}>{done && <Check size={13} />}</span><span><b>{title}</b><small>{subtitle}</small></span><ChevronRight size={16} /></Link>;
 }
 
-function useQueryWrap(path, pollProcessing = false, userId) {
+function DashboardJobSearch({ profile, initialMatches }) {
+  const [role, setRole] = useState("");
+  const [matches, setMatches] = useState(initialMatches);
+  const [searched, setSearched] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const search = async (event) => {
+    event.preventDefault();
+    const query = role.trim();
+    if (query.length < 2) {
+      setError("Enter at least 2 characters to search job titles.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await api(`/jobs/matches?${new URLSearchParams({ role: query, min_score: "0", limit: "5" })}`);
+      setMatches(result.items || []);
+      setSearched(true);
+    } catch (requestError) {
+      setError(requestError.message || "Could not search jobs. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const featuredMatch = searched ? matches[0] : initialMatches[0];
+  const score = featuredMatch?.compatibility_score;
+  const roleTitle = featuredMatch?.jobs?.title || role || "a recommended role";
+  const applicationUrl = (value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" || url.protocol === "http:" ? url.href : null;
+    } catch {
+      return null;
+    }
+  };
+  const roleResults = matches.map((match) => ({
+    match,
+    applyUrl: applicationUrl(match.jobs?.official_apply_url),
+  }));
+
+  return <section className="content-card dashboard-job-search">
+    <div className="dashboard-job-heading">
+      <div><span className="eyebrow">YOUR NEXT STEP</span><h2>Check your job readiness</h2><p>See how your evidence lines up with a role, then go directly to the employer’s application page.</p></div>
+      {profile?.id && Number.isFinite(score) ? <div className="readiness-score" style={{ "--readiness": `${score}%` }} aria-label={`${score}% match for ${roleTitle}`}><strong>{score}%</strong><small>job match</small></div> : <div className="readiness-score readiness-unavailable"><BriefcaseBusiness size={22} /><small>{profile?.id ? "Search a role" : "Build your profile"}</small></div>}
+    </div>
+    {!profile?.id && <p className="readiness-hint">Build your profile from processed evidence to calculate a role-specific match. <Link to="/app/profile">Build your profile <ArrowRight size={14} /></Link></p>}
+    <form className="dashboard-role-form" onSubmit={search}>
+      <label className="sr-only" htmlFor="dashboard-role-search">Search job role</label>
+      <Search size={18} aria-hidden="true" />
+      <input id="dashboard-role-search" value={role} onChange={(event) => setRole(event.target.value)} placeholder="Search a job role, e.g. Frontend Developer" maxLength={120} />
+      <Button type="submit" disabled={busy}>{busy ? "Searching…" : "Search roles"}</Button>
+    </form>
+    {error && <p className="dashboard-search-error" role="alert">{error}</p>}
+    {searched && roleResults.length > 0 && <div className="dashboard-role-results" aria-live="polite">
+      {roleResults.map(({ match, applyUrl }) => <article className="dashboard-role-result" key={match.id}>
+        <div><b>{match.jobs?.title || "Open role"}</b><small>{match.jobs?.company_name || "Company"} · {match.jobs?.location || (match.jobs?.is_remote ? "Remote" : "Location not specified")}</small></div>
+        <span className="score-pill">{match.compatibility_score}% match</span>
+        {applyUrl
+          ? <a className="button button-primary" href={applyUrl} target="_blank" rel="noopener noreferrer">Apply <ArrowRight size={15} /></a>
+          : <span className="apply-unavailable">Application link unavailable</span>}
+      </article>)}
+    </div>}
+    {searched && roleResults.length === 0 && <p className="dashboard-search-empty" role="status">{profile?.id ? "No open matched roles found for that title. Try a broader role name or check Job matches." : "Build your profile first to see job matches for this role."}</p>}
+    {!searched && featuredMatch && <p className="readiness-hint">Top match: <b>{roleTitle}</b> at {featuredMatch.jobs?.company_name || "an employer"}. Search a specific role to explore more.</p>}
+  </section>;
+}
+
+function useQueryWrap(path, pollProcessing = false, userId, enabled = true) {
   const query = useQuery({
     queryKey: ["api", userId, path],
+    enabled,
     queryFn: async () => {
       const result = await api(path);
       if (path === "/documents" && !Array.isArray(result)) {
@@ -274,6 +346,12 @@ function ResourcePage({ resource, session }) {
   const [jobFilters, setJobFilters] = useState({});
   const paths = { documents: "/documents", profile: "/profile", evidence: "/evidence", careers: "/careers", jobs: `/jobs/matches?${new URLSearchParams(jobFilters).toString()}`, "skill-gaps": "/skill-gaps", notifications: "/notifications", preferences: "/preferences", settings: "/me" };
   const { data, hasData, isLoading, error, refetch } = useQueryWrap(paths[resource], resource === "documents", session?.user?.id);
+  const { data: candidateProfile, isLoading: isProfileLoading } = useQueryWrap(
+    "/profile",
+    false,
+    session?.user?.id,
+    resource === "jobs",
+  );
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [profilePolling, setProfilePolling] = useState(false);
@@ -316,13 +394,21 @@ function ResourcePage({ resource, session }) {
     {resource === "documents" && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
     {resource === "jobs" && <JobFilters onApply={setJobFilters} />}
     {resource === "skill-gaps" && hasData && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
-    {isLoading && !hasData ? <LoadingState label={`Loading ${title.toLowerCase()}…`} /> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
+    {isLoading && !hasData ? <LoadingState label={`Loading ${title.toLowerCase()}…`} /> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} profileReady={candidateProfile?.id ? true : isProfileLoading ? undefined : false} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
   </div>;
 }
 
-function EmptyResource({ resource, action }) {
+function EmptyResource({ resource, action, profileReady }) {
   const labels = { documents: "No evidence added yet", profile: "Your profile has not been built yet", evidence: "Evidence mapping appears after your profile is built", careers: "Build a profile to explore career paths", jobs: "There are no matching open roles yet", "skill-gaps": "Choose a career or job to create a roadmap", notifications: "You’re all caught up", preferences: "No preferences saved yet" };
-  return <div className="empty-panel"><span className="empty-icon"><FileText size={22} /></span><h2>{labels[resource] || "Nothing to show yet"}</h2><p>As you add information, this space will show verified and explainable insights.</p>{action}</div>;
+  const needsProfile = resource === "jobs" && profileReady === false;
+  const title = needsProfile ? "Build your profile to see job matches" : labels[resource] || "Nothing to show yet";
+  const description = needsProfile
+    ? "Job matches are calculated from your processed evidence and current profile. Build your profile first, then return to explore roles."
+    : "As you add information, this space will show verified and explainable insights.";
+  const nextAction = action || (needsProfile
+    ? <Link className="button button-primary" to="/app/profile"><Sparkles size={16} /> Build my profile</Link>
+    : null);
+  return <div className="empty-panel"><span className="empty-icon"><FileText size={22} /></span><h2>{title}</h2><p>{description}</p>{nextAction}</div>;
 }
 
 function InterviewPage() {
@@ -799,7 +885,15 @@ function NotificationContent({ data, onMessage }) {
       onMessage("All notifications marked as read.");
     } catch (error) { onMessage(error.message); }
   };
-  return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className="resource-row" key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small></div>{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}</article>)}</div></>;
+  const deleteNotification = async (item) => {
+    try {
+      await api(`/notifications/${item.id}`, { method: "DELETE" });
+      setNotifications((rows) => rows.filter((row) => row.id !== item.id));
+      window.dispatchEvent(new Event("talentgraph-notifications-updated"));
+      onMessage("Notification deleted.");
+    } catch (error) { onMessage(error.message); }
+  };
+  return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className="resource-row notification-row" key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small></div><div className="notification-actions">{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}<Button variant="danger" aria-label={`Delete ${item.title} notification`} onClick={() => deleteNotification(item)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></>;
 }
 
 function SkillGapForm({ onMessage, onCreated }) {
