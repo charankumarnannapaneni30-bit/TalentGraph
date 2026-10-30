@@ -210,13 +210,29 @@ function Checklist({ done, title, subtitle, href }) {
 
 function useQueryWrap(path, pollProcessing = false) {
   const [data, setData] = useState(null);
+  const [dataPath, setDataPath] = useState(null);
   const [isLoading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [counter, setCounter] = useState(0);
+  const loadedPath = useRef(null);
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    api(path).then((value) => { if (active) { setData(value); setError(null); } }).catch((failure) => { if (active) setError(failure); }).finally(() => { if (active) setLoading(false); });
+    if (loadedPath.current !== path) {
+      setLoading(true);
+      setError(null);
+    }
+    api(path).then((value) => {
+      if (active) {
+        setData(value);
+        setDataPath(path);
+        setError(null);
+      }
+    }).catch((failure) => {
+      if (active) setError(failure);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    loadedPath.current = path;
     return () => { active = false; };
   }, [path, counter]);
   useEffect(() => {
@@ -225,7 +241,7 @@ function useQueryWrap(path, pollProcessing = false) {
     return () => clearTimeout(timer);
   }, [pollProcessing, data]);
   const refetch = useCallback(() => setCounter((n) => n + 1), []);
-  return { data, isLoading, error, refetch };
+  return { data, hasData: dataPath === path, isLoading, error, refetch };
 }
 
 const routeMeta = {
@@ -245,7 +261,7 @@ function ResourcePage({ resource }) {
   const [eyebrow, title, description] = routeMeta[resource];
   const [jobFilters, setJobFilters] = useState({});
   const paths = { documents: "/documents", profile: "/profile", evidence: "/evidence", careers: "/careers", jobs: `/jobs/matches?${new URLSearchParams(jobFilters).toString()}`, "skill-gaps": "/skill-gaps", notifications: "/notifications", preferences: "/preferences", settings: "/me" };
-  const { data, isLoading, error, refetch } = useQueryWrap(paths[resource], resource === "documents");
+  const { data, hasData, isLoading, error, refetch } = useQueryWrap(paths[resource], resource === "documents");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [profilePolling, setProfilePolling] = useState(false);
@@ -261,10 +277,10 @@ function ResourcePage({ resource }) {
   const action = resource === "documents" ? <a href="#add-evidence" className="button button-primary"><UploadCloud size={17} /> Add evidence</a> : resource === "profile" ? <Button disabled={busy || profilePolling} onClick={async () => { try { setBusy(true); await apiJson("/profile/build", "POST", {}); setProfilePollBaseline(data?.version ?? null); setProfilePollCount(0); setProfilePolling(true); setNotice("Profile build started. We’ll check for results shortly."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> {profilePolling ? "Building profile…" : "Build my profile"}</Button> : resource === "careers" ? <Button disabled={busy} onClick={async () => { try { setBusy(true); await apiJson("/careers/refresh", "POST", {}); setNotice("Career refresh queued. Refresh this page in a few moments."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> Refresh recommendations</Button> : null;
   const empty = (Array.isArray(data) && data.length === 0) || (resource === "profile" && !data?.id) || (resource === "evidence" && !data?.supported_skills) || (resource === "jobs" && !data?.items?.length);
   return <div className="page-enter"><PageTitle eyebrow={eyebrow} title={title} description={description} action={action} />{["profile", "evidence", "careers", "jobs", "skill-gaps"].includes(resource) && <Disclaimer />}{notice && <div className="form-message" role="status">{notice}</div>}
-    {resource === "documents" && !isLoading && !error && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
+    {resource === "documents" && hasData && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
     {resource === "jobs" && <JobFilters onApply={setJobFilters} />}
-    {resource === "skill-gaps" && !isLoading && !error && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
-    {isLoading ? <div className="page-loading">Loading {title.toLowerCase()}…</div> : error ? <LoadingError error={error} onRetry={refetch} /> : empty ? <EmptyResource resource={resource} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}
+    {resource === "skill-gaps" && hasData && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
+    {isLoading && !hasData ? <div className="page-loading">Loading {title.toLowerCase()}…</div> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
   </div>;
 }
 
