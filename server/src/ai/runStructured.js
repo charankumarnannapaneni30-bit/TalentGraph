@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { z } from "zod";
 import { env } from "../config/env.js";
 import { AppError } from "../utils/errors.js";
+import { logger } from "../utils/logger.js";
 
 let client;
 
@@ -73,6 +74,12 @@ export async function runStructured({ model, systemInstruction, parts, schema, t
           await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** transientAttempt)));
           continue;
         }
+        logger.error({
+          model,
+          providerStatus: getProviderErrorStatus(error) || undefined,
+          providerCode: typeof error?.code === "string" ? error.code : undefined,
+          providerErrorName: error?.name || "Error",
+        }, "AI provider request failed");
         if (error?.message === "AI request timed out.") {
           throw new AppError(504, "AI_TIMEOUT", "AI processing timed out. Please retry.");
         }

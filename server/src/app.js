@@ -26,6 +26,7 @@ import { answerMockInterview, getMockInterview, listMockInterviews, startMockInt
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
 
 const app = express();
+app.set("trust proxy", 1);
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: Math.max(env.MAX_PDF_MB, env.MAX_IMAGE_MB) * 1024 * 1024, files: 1 },

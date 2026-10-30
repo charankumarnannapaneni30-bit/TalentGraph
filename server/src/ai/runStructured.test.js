@@ -1,6 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
+
+const providerRequest = vi.hoisted(() => vi.fn());
+vi.mock("@google/genai", () => ({
+  GoogleGenAI: vi.fn(function GoogleGenAI() {
+    this.models = { generateContent: providerRequest };
+  }),
+}));
 vi.mock("../config/env.js", () => ({ env: { GEMINI_API_KEY: "test-key" } }));
-import { getProviderErrorStatus, isTransientProviderError, providerFailure } from "./runStructured.js";
+vi.mock("../utils/logger.js", () => ({ logger: { error: vi.fn() } }));
+import { logger } from "../utils/logger.js";
+import { getProviderErrorStatus, isTransientProviderError, providerFailure, runStructured } from "./runStructured.js";
 
 describe("AI provider error handling", () => {
   it("recognizes transient provider statuses across SDK error shapes", () => {
@@ -23,5 +33,27 @@ describe("AI provider error handling", () => {
     expect(failure.code).toBe("AI_RATE_LIMITED");
     expect(failure.message).toContain("usage limit");
     expect(failure.message).not.toContain("private SDK details");
+  });
+
+  it("logs safe provider diagnostics when a request fails", async () => {
+    providerRequest.mockRejectedValueOnce(Object.assign(new Error("private provider details"), {
+      status: 400,
+      code: "INVALID_ARGUMENT",
+    }));
+
+    await expect(runStructured({
+      model: "test-model",
+      systemInstruction: "",
+      parts: [],
+      schema: z.object({}),
+    })).rejects.toMatchObject({ code: "AI_REQUEST_FAILED" });
+
+    expect(logger.error).toHaveBeenCalledWith({
+      model: "test-model",
+      providerStatus: 400,
+      providerCode: "INVALID_ARGUMENT",
+      providerErrorName: "Error",
+    }, "AI provider request failed");
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain("private provider details");
   });
 });
