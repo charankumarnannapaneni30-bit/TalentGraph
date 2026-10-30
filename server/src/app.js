@@ -230,7 +230,9 @@ router.post("/profile/build", aiRateLimit, validate(emptyBodySchema), requireCon
       user_id: userId,
       type: "system",
       title: "Profile build failed",
-      body: "We could not build your profile. Review your documents and retry.",
+      body: failure instanceof AppError
+        ? failure.message
+        : "We could not build your profile due to a server error. Please try again later.",
     }).then(({ error: notificationError }) => {
       if (notificationError) logger.warn({ code: notificationError.code }, "Could not save profile failure notification");
     });

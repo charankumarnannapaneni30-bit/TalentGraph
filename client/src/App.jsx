@@ -1,6 +1,7 @@
 import { forwardRef, useCallback, useEffect, useRef, useState } from "react";
 import { Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
+import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
@@ -185,19 +186,40 @@ function LoadingError({ error, onRetry }) {
   return <div className="state-card"><CircleHelp size={20} /><b>{error ? "We couldn’t load this yet" : "Nothing here yet"}</b><p>{error?.message || "Add your information to start generating evidence-based insights."}</p>{error && <Button variant="secondary" onClick={onRetry}>Try again</Button>}</div>;
 }
 
-function Dashboard() {
-  const { data, isLoading, error, refetch } = useQueryWrap("/me");
-  const { data: docs } = useQueryWrap("/documents");
-  const { data: careers } = useQueryWrap("/careers");
-  const { data: matches } = useQueryWrap("/jobs/matches?limit=3");
-  if (isLoading) return <div className="page-loading">Loading your workspace…</div>;
+function LoadingState({ label }) {
+  return <div className="page-loading" role="status" aria-live="polite">
+    <span className="loading-spinner" aria-hidden="true" />
+    <span>{label}</span>
+    <span className="loading-skeleton" aria-hidden="true"><i /><i /><i /></span>
+  </div>;
+}
+
+function Dashboard({ session }) {
+  const { data, isLoading, error, refetch } = useQueryWrap("/me", false, session?.user?.id);
+  const { data: docs } = useQueryWrap("/documents", false, session?.user?.id);
+  const { data: profile } = useQueryWrap("/profile", false, session?.user?.id);
+  const { data: careers } = useQueryWrap("/careers", false, session?.user?.id);
+  const { data: matches } = useQueryWrap("/jobs/matches?limit=3", false, session?.user?.id);
+  if (isLoading) return <LoadingState label="Loading your workspace…" />;
   const documentCount = docs?.length || 0;
+  const processingDocumentCount = docs?.filter((doc) => ["uploaded", "processing"].includes(doc.status)).length || 0;
+  const processedDocumentCount = docs?.filter((doc) => doc.status === "processed").length || 0;
+  const failedDocumentCount = docs?.filter((doc) => doc.status === "failed").length || 0;
+  const profileStatus = profile?.id
+    ? ["Ready", "Review your profile"]
+    : processingDocumentCount
+      ? ["Processing evidence", "Your evidence is being analyzed"]
+      : processedDocumentCount
+        ? ["Ready to build", "Build your evidence-backed profile"]
+        : failedDocumentCount
+          ? ["Retry evidence", "Review failed document processing"]
+          : ["Getting started", "Add evidence to begin"];
   const name = data?.full_name || data?.user?.user_metadata?.full_name || "there";
   return <div className="page-enter"><PageTitle eyebrow="YOUR WORKSPACE" title={`Good to see you, ${name.split(" ")[0]}`} description="Build your profile from real evidence and explore your next career move." action={<Link className="button button-primary" to="/app/documents"><UploadCloud size={17} /> Add evidence</Link>} />
     <Disclaimer />
     {error ? <LoadingError error={error} onRetry={refetch} /> : <><div className="welcome-panel"><div className="welcome-copy"><span className="welcome-spark"><Sparkles size={18} /></span><div><h2>Your career picture starts with evidence.</h2><p>Add a resume, project, certificate, or GitHub link. TalentGraph will help connect your skills to the work behind them.</p><Link to="/app/documents" className="text-link">Add your first evidence <ArrowRight size={16} /></Link></div></div><div className="welcome-art"><div className="art-ring"><div className="art-core"><Activity size={26} /></div></div><span className="art-orb orb-one"></span><span className="art-orb orb-two"></span><span className="art-orb orb-three"></span></div></div>
-      <div className="metric-grid"><Metric icon={FileText} label="Documents" value={documentCount} note="Evidence items" tone="blue" /><Metric icon={GraduationCap} label="Career paths" value={careers?.length || "—"} note={careers?.length ? "Recommendations ready" : "Build your profile first"} tone="purple" /><Metric icon={BriefcaseBusiness} label="Job matches" value={matches?.items?.length || "—"} note="Open opportunities" tone="green" /><Metric icon={Gauge} label="Profile status" value={documentCount ? "Processing" : "Getting started"} note="Evidence drives insights" tone="orange" /></div>
-      <div className="dashboard-grid"><section className="content-card"><div className="card-heading"><div><h3>Get started</h3><p>A few steps to make your profile useful</p></div><span className="step-count">01 / 03</span></div><div className="checklist"><Checklist done={documentCount > 0} title="Add career evidence" subtitle="Resume, projects, certificates, or GitHub" href="/app/documents" /><Checklist done={Boolean(data?.consent_ai_processing)} title="Review your AI consent" subtitle="You control whether your data is processed" href="/app/settings" /><Checklist done={Boolean(careers?.length)} title="Build your career profile" subtitle="Synthesize evidence and explore career paths" href="/app/profile" /></div></section><section className="content-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Your workspace at a glance</p></div><Activity size={19} className="muted-icon" /></div><div className="activity-empty"><span><Activity size={20} /></span><b>Your activity will show up here</b><p>Upload an item to begin building your career profile.</p></div></section></div></>}
+      <div className="metric-grid"><Metric icon={FileText} label="Documents" value={documentCount} note="Evidence items" tone="blue" /><Metric icon={GraduationCap} label="Career paths" value={careers?.length || "—"} note={careers?.length ? "Recommendations ready" : "Build your profile first"} tone="purple" /><Metric icon={BriefcaseBusiness} label="Job matches" value={matches?.items?.length || "—"} note="Open opportunities" tone="green" /><Metric icon={Gauge} label="Profile status" value={profileStatus[0]} note={profileStatus[1]} tone="orange" /></div>
+      <div className="dashboard-grid"><section className="content-card"><div className="card-heading"><div><h3>Get started</h3><p>A few steps to make your profile useful</p></div><span className="step-count">01 / 03</span></div><div className="checklist"><Checklist done={documentCount > 0} title="Add career evidence" subtitle="Resume, projects, certificates, or GitHub" href="/app/documents" /><Checklist done={Boolean(data?.consent_ai_processing)} title="Review your AI consent" subtitle="You control whether your data is processed" href="/app/settings" /><Checklist done={Boolean(profile?.id)} title="Build your career profile" subtitle="Synthesize evidence and explore career paths" href="/app/profile" /></div></section><section className="content-card"><div className="card-heading"><div><h3>Recent activity</h3><p>Your workspace at a glance</p></div><Activity size={19} className="muted-icon" /></div>{docs?.length ? <div className="resource-list">{docs.slice(0, 3).map((doc) => <article className="resource-row" key={doc.id}><span className="resource-icon"><FileText size={18} /></span><div><b>{doc.title || doc.original_filename || doc.doc_type}</b><small>{doc.doc_type} · {new Date(doc.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${doc.status}`}>{doc.status}</span></article>)}</div> : <div className="activity-empty"><span><Activity size={20} /></span><b>Your activity will show up here</b><p>Upload an item to begin building your career profile.</p></div>}</section></div></>}
   </div>;
 }
 
@@ -208,40 +230,30 @@ function Checklist({ done, title, subtitle, href }) {
   return <Link className="checklist-item" to={href}><span className={`check-circle ${done ? "checked" : ""}`}>{done && <Check size={13} />}</span><span><b>{title}</b><small>{subtitle}</small></span><ChevronRight size={16} /></Link>;
 }
 
-function useQueryWrap(path, pollProcessing = false) {
-  const [data, setData] = useState(null);
-  const [dataPath, setDataPath] = useState(null);
-  const [isLoading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [counter, setCounter] = useState(0);
-  const loadedPath = useRef(null);
-  useEffect(() => {
-    let active = true;
-    if (loadedPath.current !== path) {
-      setLoading(true);
-      setError(null);
-    }
-    api(path).then((value) => {
-      if (active) {
-        setData(value);
-        setDataPath(path);
-        setError(null);
+function useQueryWrap(path, pollProcessing = false, userId) {
+  const query = useQuery({
+    queryKey: ["api", userId, path],
+    queryFn: async () => {
+      const result = await api(path);
+      if (path === "/documents" && !Array.isArray(result)) {
+        throw new Error("The document list returned an unexpected response. Please retry.");
       }
-    }).catch((failure) => {
-      if (active) setError(failure);
-    }).finally(() => {
-      if (active) setLoading(false);
-    });
-    loadedPath.current = path;
-    return () => { active = false; };
-  }, [path, counter]);
-  useEffect(() => {
-    if (!pollProcessing || !Array.isArray(data) || !data.some((item) => ["uploaded", "processing"].includes(item.status))) return undefined;
-    const timer = setTimeout(() => setCounter((n) => n + 1), 3000);
-    return () => clearTimeout(timer);
-  }, [pollProcessing, data]);
-  const refetch = useCallback(() => setCounter((n) => n + 1), []);
-  return { data, hasData: dataPath === path, isLoading, error, refetch };
+      return result;
+    },
+    staleTime: 15_000,
+    refetchInterval: (current) => {
+      const rows = current.state.data;
+      return pollProcessing && Array.isArray(rows) && rows.some((item) => ["uploaded", "processing"].includes(item.status))
+        ? 2500
+        : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+  return {
+    ...query,
+    data: query.data ?? null,
+    hasData: query.data !== undefined,
+  };
 }
 
 const routeMeta = {
@@ -257,35 +269,59 @@ const routeMeta = {
   settings: ["ACCOUNT & PRIVACY", "Settings", "Manage your consent, data export, and account."],
 };
 
-function ResourcePage({ resource }) {
+function ResourcePage({ resource, session }) {
   const [eyebrow, title, description] = routeMeta[resource];
   const [jobFilters, setJobFilters] = useState({});
   const paths = { documents: "/documents", profile: "/profile", evidence: "/evidence", careers: "/careers", jobs: `/jobs/matches?${new URLSearchParams(jobFilters).toString()}`, "skill-gaps": "/skill-gaps", notifications: "/notifications", preferences: "/preferences", settings: "/me" };
-  const { data, hasData, isLoading, error, refetch } = useQueryWrap(paths[resource], resource === "documents");
+  const { data, hasData, isLoading, error, refetch } = useQueryWrap(paths[resource], resource === "documents", session?.user?.id);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [profilePolling, setProfilePolling] = useState(false);
   const [profilePollCount, setProfilePollCount] = useState(0);
-  const [profilePollBaseline, setProfilePollBaseline] = useState(null);
+  const [profileBuildStartedAt, setProfileBuildStartedAt] = useState(null);
+  const [profileBuildBaseline, setProfileBuildBaseline] = useState(null);
   useEffect(() => {
     if (!profilePolling) return undefined;
-    if (data?.id && data.version !== profilePollBaseline) { setProfilePolling(false); setNotice("Your profile is ready."); return undefined; }
-    if (profilePollCount >= 40) { setProfilePolling(false); setNotice("Profile build is taking longer than expected. Check notifications and refresh later."); return undefined; }
-    const timer = setTimeout(() => { refetch(); setProfilePollCount((count) => count + 1); }, 3000);
+    if (profilePollCount >= 120) {
+      setProfilePolling(false);
+      setNotice(data?.id && data.version !== profileBuildBaseline
+        ? "Your profile was generated, but recommendations are taking longer than expected. You can review your profile and check Career paths again shortly."
+        : "Profile building is taking longer than expected. Check notifications before retrying.");
+      return undefined;
+    }
+    const timer = setTimeout(async () => {
+      refetch();
+      setProfilePollCount((count) => count + 1);
+      try {
+        const notifications = await api("/notifications");
+        const buildNotice = notifications.find((item) =>
+          Date.parse(item.created_at) >= Date.parse(profileBuildStartedAt)
+          && (item.type === "profile_ready" || item.title === "Profile build failed"));
+        if (buildNotice?.type === "profile_ready") {
+          setProfilePolling(false);
+          setNotice("Your profile and career recommendations are ready.");
+        } else if (buildNotice?.title === "Profile build failed") {
+          setProfilePolling(false);
+          setNotice(`${buildNotice.body || "Profile building failed."} Check your processed documents and try again.`);
+        }
+      } catch {
+        setNotice("Profile building continues, but its status could not be refreshed. Check notifications shortly.");
+      }
+    }, 3000);
     return () => clearTimeout(timer);
-  }, [data, profilePollBaseline, profilePollCount, profilePolling, refetch]);
-  const action = resource === "documents" ? <a href="#add-evidence" className="button button-primary"><UploadCloud size={17} /> Add evidence</a> : resource === "profile" ? <Button disabled={busy || profilePolling} onClick={async () => { try { setBusy(true); await apiJson("/profile/build", "POST", {}); setProfilePollBaseline(data?.version ?? null); setProfilePollCount(0); setProfilePolling(true); setNotice("Profile build started. We’ll check for results shortly."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> {profilePolling ? "Building profile…" : "Build my profile"}</Button> : resource === "careers" ? <Button disabled={busy} onClick={async () => { try { setBusy(true); await apiJson("/careers/refresh", "POST", {}); setNotice("Career refresh queued. Refresh this page in a few moments."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> Refresh recommendations</Button> : null;
+  }, [data, profileBuildBaseline, profileBuildStartedAt, profilePollCount, profilePolling, refetch]);
+  const action = resource === "documents" ? <a href="#add-evidence" className="button button-primary"><UploadCloud size={17} /> Add evidence</a> : resource === "profile" ? <Button disabled={busy || profilePolling} onClick={async () => { try { setBusy(true); setNotice(""); const startedAt = new Date().toISOString(); await apiJson("/profile/build", "POST", {}); setProfileBuildBaseline(data?.version ?? null); setProfileBuildStartedAt(startedAt); setProfilePollCount(0); setProfilePolling(true); setNotice("Profile build started. We’ll keep you updated as the profile and recommendations are prepared."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> {profilePolling ? "Building profile…" : "Build my profile"}</Button> : resource === "careers" ? <Button disabled={busy} onClick={async () => { try { setBusy(true); await apiJson("/careers/refresh", "POST", {}); setNotice("Career refresh queued. Refresh this page in a few moments."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> Refresh recommendations</Button> : null;
   const empty = (Array.isArray(data) && data.length === 0) || (resource === "profile" && !data?.id) || (resource === "evidence" && !data?.supported_skills) || (resource === "jobs" && !data?.items?.length);
   return <div className="page-enter"><PageTitle eyebrow={eyebrow} title={title} description={description} action={action} />{["profile", "evidence", "careers", "jobs", "skill-gaps"].includes(resource) && <Disclaimer />}{notice && <div className="form-message" role="status">{notice}</div>}
-    {resource === "documents" && hasData && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
+    {resource === "documents" && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
     {resource === "jobs" && <JobFilters onApply={setJobFilters} />}
     {resource === "skill-gaps" && hasData && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
-    {isLoading && !hasData ? <div className="page-loading">Loading {title.toLowerCase()}…</div> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
+    {isLoading && !hasData ? <LoadingState label={`Loading ${title.toLowerCase()}…`} /> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
   </div>;
 }
 
 function EmptyResource({ resource, action }) {
-  const labels = { documents: "No evidence added yet", profile: "Your profile is waiting for evidence", evidence: "Evidence mapping appears after your profile is built", careers: "Build a profile to explore career paths", jobs: "There are no matching open roles yet", "skill-gaps": "Choose a career or job to create a roadmap", notifications: "You’re all caught up", preferences: "No preferences saved yet" };
+  const labels = { documents: "No evidence added yet", profile: "Your profile has not been built yet", evidence: "Evidence mapping appears after your profile is built", careers: "Build a profile to explore career paths", jobs: "There are no matching open roles yet", "skill-gaps": "Choose a career or job to create a roadmap", notifications: "You’re all caught up", preferences: "No preferences saved yet" };
   return <div className="empty-panel"><span className="empty-icon"><FileText size={22} /></span><h2>{labels[resource] || "Nothing to show yet"}</h2><p>As you add information, this space will show verified and explainable insights.</p>{action}</div>;
 }
 
@@ -457,6 +493,7 @@ function InterviewPage() {
   const submitAnswer = async (event) => {
     event.preventDefault();
     if (!current || !answer.trim()) return;
+    const submittedAnswer = answer.trim();
     stopQuestionPlayback();
     window.clearTimeout(recordingTimerRef.current);
     if (recorderRef.current?.state === "recording") recorderRef.current.stop();
@@ -466,11 +503,25 @@ function InterviewPage() {
     setIsRecording(false);
     try {
       setBusy(true); setNotice("");
-      const interview = await apiJson(`/interviews/${current.id}/answers`, "POST", { answer: answer.trim() });
+      const interview = await apiJson(`/interviews/${current.id}/answers`, "POST", { answer: submittedAnswer });
       setCurrent(interview); setAnswer("");
       await loadInterviews();
     } catch (error) {
-      setNotice(`Could not get the next question. Your answer is still here; please try submitting it again. ${error.message}`);
+      let failureMessage = error.message;
+      try {
+        const latest = await api(`/interviews/${current.id}`);
+        const acceptedAnswer = latest.transcript?.[current.transcript.length];
+        if (acceptedAnswer?.role === "candidate" && acceptedAnswer.content === submittedAnswer) {
+          setCurrent(latest);
+          setAnswer("");
+          setNotice("Your answer was received. The interview has been updated.");
+          await loadInterviews();
+          return;
+        }
+      } catch (reconcileError) {
+        failureMessage = `${failureMessage} The interview status could not be verified, so your answer was kept.`;
+      }
+      setNotice(`Could not get the next question. Your answer is still here; please try submitting it again. ${failureMessage}`);
     } finally { setBusy(false); }
   };
   const transcript = current?.transcript || [];
@@ -630,7 +681,10 @@ function ResourceContent({ resource, data, busy, onMessage, onRefresh }) {
   if (resource === "profile") return <ProfileContent data={data} onMessage={onMessage} />;
   if (resource === "evidence") return <EvidenceContent data={data} />;
   if (resource === "notifications") return <NotificationContent data={data} onMessage={onMessage} />;
-  if (resource === "documents") return <div className="resource-list">{data.map((doc) => <article className="resource-row" key={doc.id}><span className="resource-icon"><FileText size={18} /></span><div><b>{doc.title || doc.original_filename || doc.doc_type}</b><small>{doc.doc_type} · {new Date(doc.created_at).toLocaleDateString()}</small>{doc.error_message && <small className="form-error">{doc.error_message}</small>}</div><span className={`status-tag status-${doc.status}`}>{doc.status}</span>{doc.status === "failed" && <button className="text-action" disabled={busy} onClick={async () => { try { await api(`/documents/${doc.id}/retry`, { method: "POST" }); onMessage("Retry started."); onRefresh(); } catch (error) { onMessage(error.message); } }}>Retry</button>}{doc.original_filename && <button className="text-action" onClick={async () => { try { const result = await api(`/documents/${doc.id}/download`); window.open(result.url, "_blank", "noopener,noreferrer"); } catch (error) { onMessage(error.message); } }}>Download</button>}<button className="text-action" disabled={busy} onClick={async () => { if (!window.confirm("Delete this document?")) return; try { await api(`/documents/${doc.id}`, { method: "DELETE" }); onRefresh(); onMessage("Document deleted."); } catch (e) { onMessage(e.message); } }}>Delete</button></article>)}</div>;
+  if (resource === "documents") {
+    if (!Array.isArray(data)) return <LoadingError error={new Error("The document list returned an unexpected response. Please retry.")} onRetry={onRefresh} />;
+    return <div className="resource-list">{data.map((doc) => <article className="resource-row" key={doc.id}><span className="resource-icon"><FileText size={18} /></span><div><b>{doc.title || doc.original_filename || doc.doc_type}</b><small>{doc.doc_type} · {new Date(doc.created_at).toLocaleDateString()}</small>{doc.error_message && <small className="form-error">{doc.error_message}</small>}</div><span className={`status-tag status-${doc.status}`}>{doc.status}</span>{doc.status === "failed" && <button className="text-action" disabled={busy} onClick={async () => { try { await api(`/documents/${doc.id}/retry`, { method: "POST" }); onMessage("Retry started."); onRefresh(); } catch (error) { onMessage(error.message); } }}>Retry</button>}{doc.original_filename && <button className="text-action" onClick={async () => { try { const result = await api(`/documents/${doc.id}/download`); window.open(result.url, "_blank", "noopener,noreferrer"); } catch (error) { onMessage(error.message); } }}>Download</button>}<button className="text-action" disabled={busy} onClick={async () => { if (!window.confirm("Delete this document?")) return; try { await api(`/documents/${doc.id}`, { method: "DELETE" }); onRefresh(); onMessage("Document deleted."); } catch (e) { onMessage(e.message); } }}>Delete</button></article>)}</div>;
+  }
   const items = Array.isArray(data) ? data : data?.items || [];
   if (resource === "careers") return <div className="resource-grid">{items.map((item) => <CareerCard key={item.id} item={item} onMessage={onMessage} />)}</div>;
   if (resource === "jobs") return <div className="resource-grid">{items.map((item) => <MatchCard key={item.id} item={item} onMessage={onMessage} />)}</div>;
@@ -676,12 +730,12 @@ function SkillGapCard({ item }) {
   return <article className="content-card resource-card"><div className="resource-card-top"><span className="resource-icon"><Target size={18} /></span><span className="status-tag">{item.target_type} roadmap</span></div><h3>{report.roadmap?.[0]?.goals?.[0] || "Your learning roadmap"}</h3><small className="company-line">Created {new Date(item.created_at).toLocaleDateString()}</small>{report.missing_skills?.length > 0 && <p><b>Priority gaps:</b> {report.missing_skills.slice(0, 5).map((gap) => gap.skill).join(", ")}</p>}{report.recommended_projects?.map((project) => <small className="company-line" key={project.title}>Project: {project.title}</small>)}<div className="roadmap-preview">{(report.roadmap || []).map((phase) => <div key={phase.phase}><b>{phase.timeframe}</b><small>{phase.milestones?.[0] || phase.phase}</small></div>)}</div></article>;
 }
 
-function ResourceDetailPage({ resource }) {
+function ResourceDetailPage({ resource, session }) {
   const { id } = useParams();
   const isCareer = resource === "career";
-  const { data, isLoading, error, refetch } = useQueryWrap(isCareer ? `/careers/${id}` : `/jobs/${id}`);
+  const { data, isLoading, error, refetch } = useQueryWrap(isCareer ? `/careers/${id}` : `/jobs/${id}`, false, session?.user?.id);
   const [notice, setNotice] = useState("");
-  if (isLoading) return <div className="page-loading">Loading details…</div>;
+  if (isLoading) return <LoadingState label="Loading details…" />;
   if (error) return <LoadingError error={error} onRetry={refetch} />;
   return <div className="page-enter"><PageTitle eyebrow={isCareer ? "CAREER PATH" : "OPEN OPPORTUNITY"} title={isCareer ? data.career_title : data.title} description={isCareer ? data.domain : `${data.company_name} · ${data.location || "Location not specified"}`} action={!isCareer && data.official_apply_url ? <a className="button button-primary" href={data.official_apply_url} target="_blank" rel="noopener noreferrer">Official apply link <ArrowRight size={16} /></a> : null} />{notice && <div className="form-message" role="status">{notice}</div>}{isCareer && <Disclaimer />}<div className="detail-grid"><section className="content-card"><h3>{isCareer ? "Why this career may fit" : "Role overview"}</h3><p>{data.reasoning || data.description || "No additional description is available."}</p>{isCareer && <><h3 className="detail-subhead">Supporting strengths</h3><ul className="card-list">{(data.supporting_strengths || []).map((item) => <li key={item}>{item}</li>)}</ul><h3 className="detail-subhead">Recommended improvements</h3><ul className="card-list">{(data.recommended_improvements || []).map((item) => <li key={item}>{item}</li>)}</ul><Button variant="secondary" onClick={async () => { try { await apiJson("/skill-gaps", "POST", { target_type: "career", career_id: data.id }); setNotice("Skill roadmap created."); } catch (e) { setNotice(e.message); } }}>Create roadmap <Target size={15} /></Button></>}</section><section className="content-card"><h3>{isCareer ? "Suitability" : "Job requirements"}</h3>{isCareer ? <><div className="detail-score">{data.suitability_score}<small>/100</small></div>{Object.entries(data.score_breakdown || {}).map(([label, score]) => <div className="detail-bar" key={label}><span>{label.replace("_", " ")}</span><b>{score}%</b></div>)}</> : <><p>{data.is_remote ? "Remote" : data.location || "Location not specified"} · {data.job_type || "Type not specified"}</p><p>Experience: {data.min_experience_months || 0} months minimum</p><p>Required skills: {(data.required_skills || []).join(", ") || "Not specified"}</p><p>Preferred skills: {(data.preferred_skills || []).join(", ") || "Not specified"}</p><p>{data.description}</p></>}</section></div></div>;
 }
@@ -722,7 +776,7 @@ function DocumentIntake({ onDone, onError }) {
     <label className="field"><span>Evidence type</span><select value={docType} onChange={(event) => setDocType(event.target.value)}>{[["resume", "Resume"], ["certificate", "Certificate"], ["education_record", "Education record"], ["project_report", "Project report"], ["project_screenshot", "Project screenshot"], ["text_note", "Text note"], ["github_profile", "GitHub profile or repository"], ["portfolio_link", "Portfolio link"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <label className="field"><span>Title (optional)</span><input value={title} maxLength="200" onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Backend project report" /></label>
     {textTypes ? <label className="field"><span>Text (up to 20,000 characters)</span><textarea rows="5" maxLength="20000" required value={text} onChange={(event) => setText(event.target.value)} placeholder="Add relevant experience, project context, or notes…" /></label> : linkType ? <label className="field"><span>{docType === "github_profile" ? "Public GitHub URL" : "Portfolio URL"}</span><input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder={docType === "github_profile" ? "https://github.com/username" : "https://example.com/portfolio"} /></label> : <label className="field"><span>File (PDF or image)</span><input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" /></label>}
-    <Button type="submit" disabled={busy}>{busy ? "Uploading…" : "Add evidence"} <ArrowRight size={15} /></Button>
+    <Button type="submit" disabled={busy}>{busy ? <><span className="button-spinner" aria-hidden="true" /> Uploading securely…</> : <>Add evidence <ArrowRight size={15} /></>}</Button>
   </form>;
 }
 
@@ -902,12 +956,12 @@ function App() {
       <Route element={<Protected session={session} />}>
         <Route path="/app" element={<Shell session={session} onSignOut={signOut} />}>
           <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard />} />
+          <Route path="dashboard" element={<Dashboard session={session} />} />
           {Object.keys(routeMeta).filter((resource) => resource !== "admin/jobs").map((resource) => (
-            <Route key={resource} path={resource} element={<ResourcePage resource={resource} />} />
+            <Route key={resource} path={resource} element={<ResourcePage resource={resource} session={session} />} />
           ))}
-          <Route path="careers/:id" element={<ResourceDetailPage resource="career" />} />
-          <Route path="jobs/:id" element={<ResourceDetailPage resource="job" />} />
+          <Route path="careers/:id" element={<ResourceDetailPage resource="career" session={session} />} />
+          <Route path="jobs/:id" element={<ResourceDetailPage resource="job" session={session} />} />
           <Route path="interview" element={<InterviewPage />} />
           <Route path="admin/jobs" element={<AdminRoute session={session}><AdminJobsPage /></AdminRoute>} />
         </Route>

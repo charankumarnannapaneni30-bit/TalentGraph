@@ -11,11 +11,36 @@ function getClient() {
   return client;
 }
 
-function isTransientProviderError(error) {
-  const status = Number(error?.status || error?.response?.status);
+export function isTransientProviderError(error) {
+  const status = getProviderErrorStatus(error);
   const code = error?.code;
-  return [429, 500, 502, 503, 504].includes(status)
+  return [408, 429, 500, 502, 503, 504].includes(status)
     || ["ECONNABORTED", "ECONNRESET", "EAI_AGAIN", "ETIMEDOUT"].includes(code);
+}
+
+export function getProviderErrorStatus(error) {
+  const status = error?.status || error?.response?.status || error?.error?.status || error?.cause?.status;
+  const numericStatus = Number(status);
+  if (numericStatus) return numericStatus;
+  const match = String(error?.message || "").match(/\bHTTP\s+(\d{3})\b/i);
+  return match ? Number(match[1]) : 0;
+}
+
+export function providerFailure(error) {
+  const status = getProviderErrorStatus(error);
+  if (status === 401 || status === 403) {
+    return new AppError(503, "AI_CONFIGURATION_ERROR", "The AI service is not configured correctly. Please contact the app administrator.");
+  }
+  if (status === 404) {
+    return new AppError(503, "AI_MODEL_UNAVAILABLE", "The configured AI model is unavailable. Please contact the app administrator.");
+  }
+  if (status === 429) {
+    return new AppError(503, "AI_RATE_LIMITED", "The AI service is busy or has reached its usage limit. Please wait a moment and try again.");
+  }
+  if (status >= 500 || status === 408 || isTransientProviderError(error)) {
+    return new AppError(503, "AI_TEMPORARILY_UNAVAILABLE", "The AI service is temporarily unavailable. Your answer is safe; please try again shortly.");
+  }
+  return new AppError(502, "AI_REQUEST_FAILED", "The AI service could not process this request. Please try again.");
 }
 
 export async function runStructured({ model, systemInstruction, parts, schema, temperature = 0.2 }) {
@@ -51,7 +76,7 @@ export async function runStructured({ model, systemInstruction, parts, schema, t
         if (error?.message === "AI request timed out.") {
           throw new AppError(504, "AI_TIMEOUT", "AI processing timed out. Please retry.");
         }
-        throw new AppError(502, "AI_REQUEST_FAILED", "The AI provider could not process this request.");
+        throw providerFailure(error);
       } finally {
         if (timeout) clearTimeout(timeout);
       }

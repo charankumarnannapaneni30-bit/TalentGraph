@@ -30,7 +30,9 @@ export function errorHandler(error, req, res, _next) {
   return res.status(status).json({
     error: {
       code,
-      message: env.NODE_ENV === "production" && status >= 500 ? "An unexpected error occurred." : message,
+      message: error instanceof AppError || env.NODE_ENV !== "production" || status < 500
+        ? message
+        : "An unexpected error occurred.",
       ...(error instanceof AppError && error.details ? { details: error.details } : {}),
     },
   });

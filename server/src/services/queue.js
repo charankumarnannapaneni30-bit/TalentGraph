@@ -11,7 +11,7 @@ export function enqueueWork(task, context = {}) {
         return await task();
       } catch (error) {
         lastError = error;
-        if (error?.status >= 400 && error.status < 500) break;
+        if (error?.status >= 400) break;
         if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 250 * (2 ** attempt)));
       }
     }
