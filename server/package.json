@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
     "build": "node --check src/index.js && node --check src/app.js",
     "lint": "eslint src --max-warnings 0",
     "test": "vitest run"

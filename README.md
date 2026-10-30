@@ -26,6 +26,17 @@ The client uses Supabase Auth for sign-in and obtains an access token for the AP
 
 Job-match email alerts use Resend and the email on the user's Supabase Auth account. Configure `RESEND_API_KEY` and a verified `RESEND_FROM_EMAIL` in `server/.env`; without both, job alerts remain available in-app but are not emailed. The existing “Notify me about new matches” preference controls both in-app and email alerts. Email delivery covers new job matches and reopened matched jobs only.
 
+## Render deployment
+
+Deploy the API as a Render Web Service and the client as a Render Static Site, both from the repository root (leave Root Directory blank). Use `npm ci --include=dev` in each build command so build tools such as Vite are installed even when `NODE_ENV=production` is configured in Render.
+
+- API Web Service build command: `npm ci --include=dev && npm run build --workspace server`
+- API Web Service start command: `node server/src/index.js`
+- Client Static Site build command: `npm ci --include=dev && npm run build --workspace client`
+- Client Static Site publish directory: `client/dist`
+
+Set `CLIENT_ORIGIN` on the API to the deployed client URL. Set `VITE_API_BASE_URL` on the Static Site to the API URL plus `/api/v1`, and configure the Supabase URL and anon key in the client environment. Set the Supabase service-role key, Gemini key, and optional Resend credentials only in the API environment. `vercel.json` and `client/vercel.json` rewrite SPA routes such as `/app/documents` to `index.html` whether the Vercel project root is the repository or the client folder. Add the deployed client URL to Supabase Auth's allowed redirect URLs.
+
 In Supabase Auth settings, configure the local client URL (`http://localhost:5173`) and the password-reset redirect (`http://localhost:5173/reset-password`). To grant administrator access, first create and confirm the account, then run this trusted SQL in the Supabase SQL editor with its email:
 
 ```sql

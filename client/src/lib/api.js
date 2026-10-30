@@ -1,6 +1,8 @@
 import { supabase } from "./supabase";
 
-const baseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+const configuredBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+const apiOrigin = configuredBaseUrl.replace(/\/+$/, "").replace(/\/api\/v1$/, "");
+const baseUrl = `${apiOrigin}/api/v1`;
 
 export async function api(path, options = {}) {
   const { data: { session } } = await supabase.auth.getSession();
