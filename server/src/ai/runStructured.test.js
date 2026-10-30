@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
 const providerRequest = vi.hoisted(() => vi.fn());
@@ -7,10 +7,17 @@ vi.mock("@google/genai", () => ({
     this.models = { generateContent: providerRequest };
   }),
 }));
-vi.mock("../config/env.js", () => ({ env: { GEMINI_API_KEY: "test-key" } }));
-vi.mock("../utils/logger.js", () => ({ logger: { error: vi.fn() } }));
+vi.mock("../config/env.js", () => ({
+  env: { GEMINI_API_KEY: "test-key", GEMINI_MODEL: "available-model" },
+}));
+vi.mock("../utils/logger.js", () => ({ logger: { error: vi.fn(), warn: vi.fn() } }));
 import { logger } from "../utils/logger.js";
 import { getProviderErrorStatus, isTransientProviderError, providerFailure, runStructured } from "./runStructured.js";
+
+beforeEach(() => {
+  providerRequest.mockReset();
+  vi.clearAllMocks();
+});
 
 describe("AI provider error handling", () => {
   it("recognizes transient provider statuses across SDK error shapes", () => {
@@ -55,5 +62,25 @@ describe("AI provider error handling", () => {
       providerErrorName: "Error",
     }, "AI provider request failed");
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain("private provider details");
+  });
+
+  it("falls back to the standard model when the configured model is unavailable", async () => {
+    providerRequest
+      .mockRejectedValueOnce(Object.assign(new Error("model not found"), { status: 404 }))
+      .mockResolvedValueOnce({ text: JSON.stringify({ summary: "Profile summary" }) });
+
+    await expect(runStructured({
+      model: "unavailable-model",
+      systemInstruction: "",
+      parts: [],
+      schema: z.object({ summary: z.string() }),
+    })).resolves.toEqual({ summary: "Profile summary" });
+
+    expect(providerRequest.mock.calls.map(([request]) => request.model))
+      .toEqual(["unavailable-model", "available-model"]);
+    expect(logger.warn).toHaveBeenCalledWith({
+      model: "unavailable-model",
+      fallbackModel: "available-model",
+    }, "Configured AI model unavailable; retrying with the standard model");
   });
 });

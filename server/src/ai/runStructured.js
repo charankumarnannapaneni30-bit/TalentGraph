@@ -46,6 +46,7 @@ export function providerFailure(error) {
 
 export async function runStructured({ model, systemInstruction, parts, schema, temperature = 0.2 }) {
   const ai = getClient();
+  let requestModel = model;
   let correction = "";
   let lastValidationError;
   for (let validationAttempt = 0; validationAttempt < 2; validationAttempt += 1) {
@@ -55,7 +56,7 @@ export async function runStructured({ model, systemInstruction, parts, schema, t
       try {
         response = await Promise.race([
           ai.models.generateContent({
-            model,
+            model: requestModel,
             contents: [{ role: "user", parts: [...parts, ...(correction ? [{ text: correction }] : [])] }],
             config: {
               systemInstruction,
@@ -70,12 +71,20 @@ export async function runStructured({ model, systemInstruction, parts, schema, t
         ]);
         break;
       } catch (error) {
+        if (getProviderErrorStatus(error) === 404 && requestModel !== env.GEMINI_MODEL) {
+          logger.warn({
+            model: requestModel,
+            fallbackModel: env.GEMINI_MODEL,
+          }, "Configured AI model unavailable; retrying with the standard model");
+          requestModel = env.GEMINI_MODEL;
+          continue;
+        }
         if (isTransientProviderError(error) && transientAttempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** transientAttempt)));
           continue;
         }
         logger.error({
-          model,
+          model: requestModel,
           providerStatus: getProviderErrorStatus(error) || undefined,
           providerCode: typeof error?.code === "string" ? error.code : undefined,
           providerErrorName: error?.name || "Error",
