@@ -11,6 +11,13 @@ function getClient() {
   return client;
 }
 
+function isTransientProviderError(error) {
+  const status = Number(error?.status || error?.response?.status);
+  const code = error?.code;
+  return [429, 500, 502, 503, 504].includes(status)
+    || ["ECONNABORTED", "ECONNRESET", "EAI_AGAIN", "ETIMEDOUT"].includes(code);
+}
+
 export async function runStructured({ model, systemInstruction, parts, schema, temperature = 0.2 }) {
   const ai = getClient();
   let correction = "";
@@ -37,8 +44,7 @@ export async function runStructured({ model, systemInstruction, parts, schema, t
         ]);
         break;
       } catch (error) {
-        const status = error?.status || error?.response?.status;
-        if ((status === 429 || status === 503) && transientAttempt < 2) {
+        if (isTransientProviderError(error) && transientAttempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 500 * (2 ** transientAttempt)));
           continue;
         }

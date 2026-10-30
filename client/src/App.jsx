@@ -469,7 +469,9 @@ function InterviewPage() {
       const interview = await apiJson(`/interviews/${current.id}/answers`, "POST", { answer: answer.trim() });
       setCurrent(interview); setAnswer("");
       await loadInterviews();
-    } catch (error) { setNotice(error.message); } finally { setBusy(false); }
+    } catch (error) {
+      setNotice(`Could not get the next question. Your answer is still here; please try submitting it again. ${error.message}`);
+    } finally { setBusy(false); }
   };
   const transcript = current?.transcript || [];
   const nextIsCandidate = transcript.at(-1)?.role === "interviewer" && current?.status === "in_progress";
