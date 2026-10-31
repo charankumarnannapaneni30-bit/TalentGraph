@@ -335,3 +335,4 @@ export async function respondToInquiry(candidateUserId, inquiryId, input) {
 
   return updated;
 }
+

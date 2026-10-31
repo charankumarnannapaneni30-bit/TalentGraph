@@ -13,15 +13,24 @@ import { supabase } from "./lib/supabase";
 import { api, apiJson } from "./lib/api";
 import { loginSchema, registerSchema } from "./lib/schemas";
 
-const menu = [
+const candidateMenu = [
   ["Overview", "/app/dashboard", LayoutDashboard],
   ["Documents", "/app/documents", FileText],
   ["My profile", "/app/profile", UserRound],
   ["Evidence review", "/app/evidence", Fingerprint],
   ["Career paths", "/app/careers", GraduationCap],
   ["Job matches", "/app/jobs", BriefcaseBusiness],
+  ["Recruiter inquiries", "/app/inquiries", Mail],
   ["Mock interview", "/app/interview", MessageSquareText],
   ["Skill roadmap", "/app/skill-gaps", Target],
+];
+
+const recruiterMenu = [
+  ["Talent graph", "/app/recruiter/candidates", Users],
+  ["Outreach & Inquiries", "/app/recruiter/inquiries", Send],
+  ["Post a job", "/app/recruiter/jobs", BriefcaseBusiness],
+  ["Messages", "/app/inquiries", Mail],
+  ["Company profile", "/app/profile", UserRound],
 ];
 const disclaimer = "AI-generated insights are advisory and based only on the information you provided. They are not hiring decisions. Verify details with the employer.";
 
@@ -146,8 +155,28 @@ function Shell({ session, onSignOut }) {
   const accountMenuRef = useRef(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [latestNotifications, setLatestNotifications] = useState([]);
+  const [userRole, setUserRole] = useState(session?.user?.user_metadata?.role || "candidate");
   const location = useLocation();
-  const visibleMenu = session?.user?.app_metadata?.role === "admin" ? [...menu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness]] : menu;
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    api("/me").then((me) => {
+      if (me?.role) setUserRole(me.role);
+    }).catch(() => {});
+    const handleRoleUpdate = () => {
+      api("/me").then((me) => {
+        if (me?.role) setUserRole(me.role);
+      }).catch(() => {});
+    };
+    window.addEventListener("talentgraph-role-updated", handleRoleUpdate);
+    return () => window.removeEventListener("talentgraph-role-updated", handleRoleUpdate);
+  }, []);
+
+  const isRecruiter = userRole === "recruiter";
+  const baseMenu = isRecruiter ? recruiterMenu : candidateMenu;
+  const visibleMenu = session?.user?.app_metadata?.role === "admin"
+    ? [...baseMenu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness]]
+    : baseMenu;
   const current = visibleMenu.find((item) => location.pathname.startsWith(item[1]))?.[0] || "Workspace";
   const accountName = session?.user?.user_metadata?.full_name || "Your workspace";
   const accountEmail = session?.user?.email || "";

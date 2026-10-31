@@ -41,3 +41,4 @@ create policy recruiter_inquiries_candidate_update on public.recruiter_inquiries
 
 grant usage on schema public to service_role;
 grant all privileges on table public.recruiter_inquiries to service_role;
+
