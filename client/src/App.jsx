@@ -5,9 +5,9 @@ import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
-  Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp,
-  FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, MessageSquareText,
-  Menu, Mic, MicOff, Search, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserRound, Video, Volume2, X,
+  Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Building, Check, ChevronDown, ChevronRight, CircleHelp,
+  FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, Mail, MessageSquareText,
+  Menu, Mic, MicOff, Search, Send, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserRound, Users, Video, Volume2, X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { api, apiJson } from "./lib/api";
@@ -197,7 +197,7 @@ function Shell({ session, onSignOut }) {
   };
   return <div className="app-shell">
     {sidebarOpen && <button className="mobile-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
-    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}><div className="sidebar-brand"><Brand /></div><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{visibleMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname.startsWith(path) ? "active" : ""}><Icon size={18} /><span>{label}</span>{label === "Job matches" && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><Link to="/app/preferences"><Settings size={18} />Preferences</Link><Link to="/app/settings"><ShieldCheck size={18} />Settings & privacy</Link><button onClick={onSignOut}><LogOut size={18} />Sign out</button><div className="sidebar-user"><span>{accountInitial}</span><div><b>{accountName}</b><small>Candidate account</small></div></div></div></aside>
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}><div className="sidebar-brand"><Brand /></div><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{visibleMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname.startsWith(path) ? "active" : ""}><Icon size={18} /><span>{label}</span>{label === "Job matches" && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><Link to="/app/preferences"><Settings size={18} />Preferences</Link><Link to="/app/settings"><ShieldCheck size={18} />Settings & privacy</Link><button onClick={onSignOut}><LogOut size={18} />Sign out</button><div className="sidebar-user"><span>{accountInitial}</span><div><b>{accountName}</b><small><span className={`role-badge role-badge-${userRole}`}>{isRecruiter ? "Recruiter" : "Candidate"}</span></small></div></div></div></aside>
     <div className="main-column">
       <header className="topbar">
         <button className="mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={21} /></button>
@@ -211,7 +211,26 @@ function Shell({ session, onSignOut }) {
           <div className="account-menu" ref={accountMenuRef}>
             <button className="account-trigger" type="button" aria-label="Open account menu" aria-controls="account-menu" aria-haspopup="true" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)}><span className="avatar">{accountInitial}</span><ChevronDown size={15} /></button>
             {accountOpen && <div className="account-popover" id="account-menu">
-              <div className="account-popover-user"><span className="account-popover-avatar">{accountInitial}</span><div><b>{accountName}</b><small>{accountEmail || "Candidate account"}</small></div></div>
+              <div className="account-popover-user"><span className="account-popover-avatar">{accountInitial}</span><div><b>{accountName}</b><small>{accountEmail || (isRecruiter ? "Recruiter account" : "Candidate account")}</small></div></div>
+              <button
+                type="button"
+                className="role-toggle-btn"
+                onClick={async () => {
+                  const nextRole = isRecruiter ? "candidate" : "recruiter";
+                  try {
+                    await apiJson("/me", "PATCH", { role: nextRole });
+                    setUserRole(nextRole);
+                    setAccountOpen(false);
+                    window.dispatchEvent(new Event("talentgraph-role-updated"));
+                    navigate(nextRole === "recruiter" ? "/app/recruiter/candidates" : "/app/dashboard");
+                  } catch (e) {
+                    console.error(e);
+                  }
+                }}
+              >
+                <Users size={16} />
+                <span>Switch to {isRecruiter ? "Candidate" : "Recruiter"} mode</span>
+              </button>
               <Link to="/app/profile" onClick={() => setAccountOpen(false)}><UserRound size={17} />My profile</Link>
               <Link to="/app/preferences" onClick={() => setAccountOpen(false)}><Settings size={17} />Preferences</Link>
               <Link to="/app/settings" onClick={() => setAccountOpen(false)}><ShieldCheck size={17} />Settings &amp; privacy</Link>
@@ -1020,7 +1039,7 @@ function SettingsContent({ data, onMessage }) {
   return <div className="settings-grid"><section className="content-card"><h3>AI processing consent</h3><p>Consent is required before TalentGraph sends your submitted evidence for AI analysis.</p><Button variant="secondary" onClick={() => setConsent(!hasConsent)}>{hasConsent ? "Withdraw consent" : "Allow AI processing"}</Button></section><section className="content-card"><h3>Your data</h3><p>Download a copy of your TalentGraph account data.</p><Button variant="secondary" onClick={async () => { try { const exported = await api("/account/export"); const blob = new Blob([JSON.stringify(exported, null, 2)], { type: "application/json" }); const link = document.createElement("a"); link.href = URL.createObjectURL(blob); link.download = "talentgraph-export.json"; link.click(); URL.revokeObjectURL(link.href); } catch (e) { onMessage(e.message); } }}>Export data <ArrowRight size={16} /></Button></section><section className="content-card danger-card"><h3>Delete account</h3><p>This permanently deletes your account and associated TalentGraph data.</p><Button variant="danger" onClick={async () => { if (!window.confirm("Permanently delete your account and all associated data?")) return; try { await api("/account", { method: "DELETE" }); await supabase.auth.signOut(); window.location.assign("/"); } catch (e) { onMessage(e.message); } }}>Delete account</Button></section></div>;
 }
 
-function AdminJobsPage() {
+function AdminJobsPage({ isRecruiter = false }) {
   const [sources, setSources] = useState([]);
   const [adapter, setAdapter] = useState("greenhouse");
   const [notice, setNotice] = useState("");
@@ -1066,7 +1085,12 @@ function AdminJobsPage() {
   };
   return (
     <div className="page-enter">
-      <PageTitle eyebrow={routeMeta["admin/jobs"][0]} title={routeMeta["admin/jobs"][1]} description={routeMeta["admin/jobs"][2]} action={<Button disabled={busy} onClick={sync}><Activity size={16} /> Sync sources</Button>} />
+      <PageTitle
+        eyebrow={isRecruiter ? "RECRUITER VACANCIES" : routeMeta["admin/jobs"][0]}
+        title={isRecruiter ? "Post an Opening" : routeMeta["admin/jobs"][1]}
+        description={isRecruiter ? "Publish a new role for your company. TalentGraph will match your opening with evidence-backed candidates." : routeMeta["admin/jobs"][2]}
+        action={!isRecruiter && <Button disabled={busy} onClick={sync}><Activity size={16} /> Sync sources</Button>}
+      />
       {notice && <div className="form-message" role="status">{notice}</div>}
       <div className="admin-grid">
         <section className="content-card">
@@ -1101,6 +1125,409 @@ function AdminJobsPage() {
           </form>
         </section>
       </div>
+    </div>
+  );
+}
+
+
+function InquiryModal({ candidate, onClose, onSent }) {
+  const [roleTitle, setRoleTitle] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [message, setMessage] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!roleTitle.trim() || !companyName.trim() || !message.trim()) {
+      setError("Please fill out all required fields.");
+      return;
+    }
+    try {
+      setBusy(true);
+      setError("");
+      await apiJson("/recruiter/inquiries", "POST", {
+        candidate_id: candidate.id,
+        role_title: roleTitle.trim(),
+        company_name: companyName.trim(),
+        message: message.trim(),
+        recruiter_contact: {
+          email: email.trim() || undefined,
+          phone: phone.trim() || undefined,
+        },
+      });
+      onSent(`Inquiry sent to ${candidate.full_name}! They have been notified.`);
+      onClose();
+    } catch (err) {
+      setError(err.message || "Failed to send inquiry.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="inquiry-modal-backdrop" onClick={onClose}>
+      <div className="inquiry-modal" onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h3>Contact {candidate.full_name}</h3>
+          <button className="text-action" onClick={onClose} aria-label="Close modal"><X size={18} /></button>
+        </div>
+        <p>Send an opportunity inquiry directly to this candidate. They will receive an in-app alert and can accept to connect.</p>
+        {error && <div className="form-message form-message-negative">{error}</div>}
+        <form onSubmit={submit} className="inquiry-form">
+          <label className="field">
+            <span>Opportunity / Role Title *</span>
+            <input required placeholder="e.g. Senior Frontend Engineer" value={roleTitle} onChange={(e) => setRoleTitle(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Company Name *</span>
+            <input required placeholder="e.g. Acme Tech" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+          </label>
+          <label className="field">
+            <span>Direct Message / Pitch *</span>
+            <textarea required rows={4} placeholder="Explain why their verified skills and projects caught your attention, and what makes this opening a great fit..." value={message} onChange={(e) => setMessage(e.target.value)} />
+          </label>
+          <div className="field-pair">
+            <label className="field">
+              <span>Your Work Email</span>
+              <input type="email" placeholder="recruiter@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Your Phone / LinkedIn</span>
+              <input placeholder="+1 (555) 012-3456" value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
+          </div>
+          <div style={{ display: "flex", gap: "10px", marginTop: "12px", justifyContent: "flex-end" }}>
+            <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={busy}>{busy ? "Sending…" : "Send inquiry"} <Send size={15} /></Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function RecruiterCandidatesPage() {
+  const [search, setSearch] = useState("");
+  const [skill, setSkill] = useState("");
+  const [minExperience, setMinExperience] = useState("");
+  const [education, setEducation] = useState("");
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [selectedCandidate, setSelectedCandidate] = useState(null);
+
+  const loadCandidates = useCallback(async () => {
+    try {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      if (skill) params.set("skill", skill);
+      if (minExperience) params.set("min_experience", minExperience);
+      if (education) params.set("education", education);
+      const data = await api(`/recruiter/candidates?${params.toString()}`);
+      setCandidates(data || []);
+    } catch (err) {
+      setNotice(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [search, skill, minExperience, education]);
+
+  useEffect(() => {
+    loadCandidates();
+  }, [loadCandidates]);
+
+  const quickSkills = ["React", "Python", "Node.js", "TypeScript", "SQL", "Machine Learning", "AWS"];
+
+  return (
+    <div className="page-enter">
+      <PageTitle
+        eyebrow="TALENT GRAPH &amp; DISCOVERY"
+        title="Candidate Search"
+        description="Search evidence-backed candidate profiles, explore verified skill capabilities, and contact talent directly."
+      />
+      {notice && <div className={`form-message form-message-${messageTone(notice)}`}>{notice}</div>}
+
+      <div className="content-card recruiter-filters">
+        <label className="field">
+          <span>Search keyword or name</span>
+          <input placeholder="e.g. React developer, John..." value={search} onChange={(e) => setSearch(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Filter by skill</span>
+          <input placeholder="e.g. Python" value={skill} onChange={(e) => setSkill(e.target.value)} />
+        </label>
+        <label className="field">
+          <span>Min. Experience</span>
+          <select value={minExperience} onChange={(e) => setMinExperience(e.target.value)}>
+            <option value="">Any experience</option>
+            <option value="12">1+ year</option>
+            <option value="24">2+ years</option>
+            <option value="36">3+ years</option>
+            <option value="60">5+ years</option>
+          </select>
+        </label>
+        <label className="field">
+          <span>Education</span>
+          <select value={education} onChange={(e) => setEducation(e.target.value)}>
+            <option value="">Any education</option>
+            <option value="Bachelor">Bachelor's</option>
+            <option value="Master">Master's</option>
+            <option value="PhD">PhD / Doctorate</option>
+          </select>
+        </label>
+      </div>
+
+      <div className="skills-pills" style={{ marginBottom: "16px" }}>
+        <span style={{ fontSize: "12px", color: "var(--muted)", alignSelf: "center", marginRight: "6px" }}>Quick filters:</span>
+        {quickSkills.map((s) => (
+          <button
+            key={s}
+            type="button"
+            className={`skill-pill ${skill === s ? "skill-pill-strong" : ""}`}
+            style={{ cursor: "pointer", border: "1px solid #dcdfe5", background: skill === s ? "#e0f2fe" : "#fff" }}
+            onClick={() => setSkill(skill === s ? "" : s)}
+          >
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <LoadingState label="Discovering talent profiles…" />
+      ) : candidates.length === 0 ? (
+        <div className="state-card">
+          <Users size={28} />
+          <b>No candidate profiles found</b>
+          <p>No candidates match your current search filters. Try adjusting the skill keyword or clearing filters.</p>
+          <Button variant="secondary" onClick={() => { setSearch(""); setSkill(""); setMinExperience(""); setEducation(""); }}>Clear filters</Button>
+        </div>
+      ) : (
+        <div className="resource-grid">
+          {candidates.map((cand) => (
+            <article key={cand.id} className="content-card resource-card">
+              <div className="resource-card-top">
+                <span className="resource-icon"><UserRound size={18} /></span>
+                <span className="score-pill">{Math.round((cand.total_experience_months || 0) / 12)} yrs experience</span>
+              </div>
+              <h3>{cand.full_name}</h3>
+              <small className="company-line">{cand.highest_education} · {cand.total_experience_months || 0} months total exp</small>
+              <p>{cand.summary}</p>
+              
+              <div className="skills-pills">
+                {(cand.skills || []).slice(0, 6).map((sk) => (
+                  <span key={sk.name} className={`skill-pill ${sk.level === "strong" ? "skill-pill-strong" : ""}`}>
+                    {sk.name} <small style={{ opacity: 0.75 }}>({sk.level || "verified"})</small>
+                  </span>
+                ))}
+              </div>
+
+              {cand.projects?.length > 0 && (
+                <div style={{ marginTop: "8px", fontSize: "12px", color: "var(--muted)" }}>
+                  <b>Recent project:</b> {cand.projects[0].title}
+                </div>
+              )}
+
+              <div className="card-actions" style={{ marginTop: "16px" }}>
+                <Button variant="primary" onClick={() => setSelectedCandidate(cand)}>
+                  <Send size={14} /> Contact Candidate
+                </Button>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+
+      {selectedCandidate && (
+        <InquiryModal
+          candidate={selectedCandidate}
+          onClose={() => setSelectedCandidate(null)}
+          onSent={(msg) => setNotice(msg)}
+        />
+      )}
+    </div>
+  );
+}
+
+function RecruiterInquiriesPage() {
+  const [inquiries, setInquiries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await api("/recruiter/inquiries");
+      setInquiries(data || []);
+    } catch (err) {
+      setNotice(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div className="page-enter">
+      <PageTitle
+        eyebrow="RECRUITER OUTREACH"
+        title="Sent Inquiries &amp; Requests"
+        description="Track contact requests sent to candidates, view acceptances, and follow up directly."
+      />
+      {notice && <div className={`form-message form-message-${messageTone(notice)}`}>{notice}</div>}
+
+      {loading ? (
+        <LoadingState label="Loading sent inquiries…" />
+      ) : inquiries.length === 0 ? (
+        <div className="state-card">
+          <Send size={28} />
+          <b>No inquiries sent yet</b>
+          <p>Find candidates on the Talent Graph and reach out with tailored job opportunities.</p>
+          <Link to="/app/recruiter/candidates" className="button button-primary">Browse Candidates <ArrowRight size={15} /></Link>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: "14px" }}>
+          {inquiries.map((inq) => (
+            <article key={inq.id} className="inquiry-card">
+              <div className="inquiry-header">
+                <div>
+                  <h4>Role: {inq.role_title}</h4>
+                  <small className="company-line">Candidate: <b>{inq.candidate_name || "Candidate"}</b> · {inq.company_name} · Sent {new Date(inq.created_at).toLocaleDateString()}</small>
+                </div>
+                <span className={`status-tag status-${inq.status}`}>
+                  {inq.status === "accepted" ? "Accepted" : inq.status === "declined" ? "Declined" : "Pending Review"}
+                </span>
+              </div>
+              <div className="inquiry-body-text">
+                <b>Your pitch:</b> {inq.message}
+              </div>
+              {inq.candidate_response && (
+                <div className="inquiry-contact-box">
+                  <b>Candidate Response:</b> {inq.candidate_response}
+                </div>
+              )}
+              {inq.status === "accepted" && (
+                <div style={{ marginTop: "10px", fontSize: "13px", color: "#15803d", fontWeight: "600" }}>
+                  Candidate accepted! You can reach out directly via their account.
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CandidateInquiriesPage() {
+  const [inquiries, setInquiries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [notice, setNotice] = useState("");
+  const [replyText, setReplyText] = useState({});
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await api("/inquiries");
+      setInquiries(data || []);
+    } catch (err) {
+      setNotice(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const respond = async (id, status) => {
+    try {
+      const response = replyText[id] || "";
+      await apiJson(`/inquiries/${id}`, "PATCH", { status, candidate_response: response });
+      setNotice(status === "accepted" ? "Inquiry accepted! Your contact info was shared with the recruiter." : "Inquiry declined.");
+      await load();
+    } catch (err) {
+      setNotice(err.message);
+    }
+  };
+
+  return (
+    <div className="page-enter">
+      <PageTitle
+        eyebrow="OPPORTUNITY INQUIRIES"
+        title="Recruiter Messages &amp; Outreach"
+        description="Recruiters who were impressed by your verified skills and want to discuss opportunities."
+      />
+      {notice && <div className={`form-message form-message-${messageTone(notice)}`}>{notice}</div>}
+
+      {loading ? (
+        <LoadingState label="Loading recruiter inquiries…" />
+      ) : inquiries.length === 0 ? (
+        <div className="state-card">
+          <Mail size={28} />
+          <b>No inquiries yet</b>
+          <p>As you add more verified evidence and build your profile, recruiters exploring the Talent Graph can reach out to you directly.</p>
+          <Link to="/app/profile" className="button button-primary">Enhance My Profile <ArrowRight size={15} /></Link>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: "14px" }}>
+          {inquiries.map((inq) => (
+            <article key={inq.id} className="inquiry-card">
+              <div className="inquiry-header">
+                <div>
+                  <h4>{inq.company_name} — {inq.role_title}</h4>
+                  <small className="company-line">Received {new Date(inq.created_at).toLocaleDateString()}</small>
+                </div>
+                <span className={`status-tag status-${inq.status}`}>
+                  {inq.status === "accepted" ? "Connected" : inq.status === "declined" ? "Declined" : "Pending"}
+                </span>
+              </div>
+              <div className="inquiry-body-text">
+                {inq.message}
+              </div>
+              
+              {inq.recruiter_contact && (inq.recruiter_contact.email || inq.recruiter_contact.phone || inq.recruiter_contact.linkedin) && (
+                <div className="inquiry-contact-box" style={{ background: "#f8fafc", borderColor: "#cbd5e1", color: "#334155" }}>
+                  <b>Recruiter Contact Info:</b>
+                  {inq.recruiter_contact.email && <div>Email: <a href={`mailto:${inq.recruiter_contact.email}`}>{inq.recruiter_contact.email}</a></div>}
+                  {inq.recruiter_contact.phone && <div>Phone: {inq.recruiter_contact.phone}</div>}
+                  {inq.recruiter_contact.linkedin && <div>LinkedIn: <a href={inq.recruiter_contact.linkedin} target="_blank" rel="noreferrer">{inq.recruiter_contact.linkedin}</a></div>}
+                </div>
+              )}
+
+              {inq.status === "pending" && (
+                <div style={{ marginTop: "14px" }}>
+                  <label className="field" style={{ marginBottom: "10px" }}>
+                    <span>Optional reply message to the recruiter</span>
+                    <input
+                      placeholder="e.g. Thanks for reaching out! I would love to discuss this role."
+                      value={replyText[inq.id] || ""}
+                      onChange={(e) => setReplyText({ ...replyText, [inq.id]: e.target.value })}
+                    />
+                  </label>
+                  <div className="inquiry-actions">
+                    <Button variant="primary" onClick={() => respond(inq.id, "accepted")}>
+                      <Check size={15} /> Accept &amp; Connect
+                    </Button>
+                    <Button variant="secondary" onClick={() => respond(inq.id, "declined")}>
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {inq.status === "accepted" && inq.candidate_response && (
+                <div className="inquiry-contact-box">
+                  <b>Your reply:</b> {inq.candidate_response}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

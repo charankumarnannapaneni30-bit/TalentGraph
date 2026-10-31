@@ -24,6 +24,7 @@ import { DISCLAIMER } from "./config/advisory.js";
 import { isAllowedClientOrigin } from "./utils/corsOrigin.js";
 import { answerMockInterview, deleteMockInterview, finishMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
+import { searchCandidates, getCandidateDetail, sendRecruiterInquiry, listRecruiterInquiries, listCandidateInquiries, respondToInquiry } from "./services/recruiter.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -75,26 +76,56 @@ router.get("/me", asyncRoute(async (req, res) => {
   const { data: preferences, error: preferenceError } = await supabaseAdmin.from("preferences")
     .select("*").eq("user_id", req.user.id).maybeSingle();
   if (preferenceError) throw new AppError(500, "DATABASE_ERROR", "Could not load your preferences.");
-  return send(res, { ...profile, user: { user_metadata: req.user.user_metadata }, preferences: preferences || {} });
+
+  const role = req.user.app_metadata?.role || req.user.user_metadata?.role || profile?.role || "candidate";
+  const company_name = req.user.user_metadata?.company_name || profile?.company_name || "";
+
+  return send(res, {
+    ...profile,
+    role,
+    company_name,
+    user: { user_metadata: req.user.user_metadata, app_metadata: req.user.app_metadata },
+    preferences: preferences || {},
+  });
 }));
 
 const meSchema = z.object({
   full_name: z.string().trim().min(2).max(120).optional(),
   consent_ai_processing: z.boolean().optional(),
+  role: z.enum(["candidate", "recruiter"]).optional(),
+  company_name: z.string().trim().max(200).optional(),
 }).strict();
 router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
-  const update = { ...req.body, updated_at: new Date().toISOString() };
+  const update = { updated_at: new Date().toISOString() };
+  if (req.body.full_name !== undefined) update.full_name = req.body.full_name;
   if (req.body.consent_ai_processing === true) update.consent_at = new Date().toISOString();
   if (req.body.consent_ai_processing === false) update.consent_at = null;
-  const { data, error } = await supabaseAdmin.from("profiles").update(update).eq("id", req.user.id).select("id, full_name, consent_ai_processing, consent_at").single();
-  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not update your profile.");
-  if (req.body.full_name !== undefined) {
-    const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, {
-      user_metadata: { ...req.user.user_metadata, full_name: req.body.full_name },
-    });
-    if (metadataError) throw new AppError(500, "PROFILE_METADATA_UPDATE_FAILED", "Profile updated but account display name could not be updated.");
+  if (req.body.role !== undefined) update.role = req.body.role;
+  if (req.body.company_name !== undefined) update.company_name = req.body.company_name;
+
+  let savedData = { id: req.user.id, full_name: req.body.full_name || req.user.user_metadata?.full_name };
+  try {
+    const { data, error } = await supabaseAdmin.from("profiles").update(update).eq("id", req.user.id).select("id, full_name, consent_ai_processing, consent_at").single();
+    if (!error && data) savedData = data;
+  } catch (err) {
+    logger.warn({ err }, "Could not update some fields in profiles table");
   }
-  return send(res, data);
+
+  const updatedMetadata = { ...req.user.user_metadata };
+  if (req.body.full_name !== undefined) updatedMetadata.full_name = req.body.full_name;
+  if (req.body.role !== undefined) updatedMetadata.role = req.body.role;
+  if (req.body.company_name !== undefined) updatedMetadata.company_name = req.body.company_name;
+
+  const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, {
+    user_metadata: updatedMetadata,
+  });
+  if (metadataError) throw new AppError(500, "PROFILE_METADATA_UPDATE_FAILED", "Profile updated but account metadata could not be updated.");
+
+  return send(res, {
+    ...savedData,
+    role: updatedMetadata.role || "candidate",
+    company_name: updatedMetadata.company_name || "",
+  });
 }));
 
 const preferenceSchema = z.object({
@@ -492,6 +523,44 @@ router.delete("/account", asyncRoute(async (req, res) => {
   const { error } = await supabaseAdmin.auth.admin.deleteUser(req.user.id);
   if (error) throw new AppError(500, "ACCOUNT_DELETE_FAILED", "Could not delete the account.");
   return send(res, { deleted: true });
+}));
+
+// --- Recruiter & Outreach Endpoints ---
+router.get("/recruiter/candidates", asyncRoute(async (req, res) => {
+  const candidates = await searchCandidates({
+    search: req.query.search || "",
+    skill: req.query.skill || "",
+    minExperience: req.query.min_experience ? parseInt(req.query.min_experience, 10) : 0,
+    highestEducation: req.query.education || "",
+    limit: req.query.limit ? parseInt(req.query.limit, 10) : 50,
+  });
+  return send(res, candidates);
+}));
+
+router.get("/recruiter/candidates/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+  const candidate = await getCandidateDetail(req.params.id);
+  return send(res, candidate);
+}));
+
+router.post("/recruiter/inquiries", asyncRoute(async (req, res) => {
+  const inquiry = await sendRecruiterInquiry(req.user, req.body);
+  return send(res, inquiry, 201);
+}));
+
+router.get("/recruiter/inquiries", asyncRoute(async (req, res) => {
+  const inquiries = await listRecruiterInquiries(req.user.id);
+  return send(res, inquiries);
+}));
+
+// Candidate inquiries view & response
+router.get("/inquiries", asyncRoute(async (req, res) => {
+  const inquiries = await listCandidateInquiries(req.user.id);
+  return send(res, inquiries);
+}));
+
+router.patch("/inquiries/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+  const updated = await respondToInquiry(req.user.id, req.params.id, req.body);
+  return send(res, updated);
 }));
 
 router.get("/admin/job-sources", requireAdmin, asyncRoute(async (_req, res) => {
