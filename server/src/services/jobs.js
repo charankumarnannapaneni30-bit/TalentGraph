@@ -3,12 +3,10 @@ import { z } from "zod";
 import { env } from "../config/env.js";
 import { supabaseAdmin } from "../utils/supabase.js";
 import { AppError } from "../utils/errors.js";
-import { runStructured } from "../ai/runStructured.js";
-import { systemInstruction } from "../ai/prompts/system.js";
-import { jobRequirementsSchema } from "../ai/schemas/job.js";
 import { logger } from "../utils/logger.js";
 import { refreshMatchesForUser } from "./profileBuilder.js";
 import { sendJobMatchNotificationEmail } from "./notificationEmails.js";
+import { extractJobRequirements } from "./jobRequirements.js";
 
 const greenhouseJobSchema = z.object({
   id: z.union([z.string(), z.number()]),
@@ -92,16 +90,6 @@ async function fetchLever(source) {
   return { postings, skipped };
 }
 
-async function extractRequirements(job) {
-  if (!job.description) return jobRequirementsSchema.parse({});
-  return runStructured({
-    model: env.GEMINI_MODEL,
-    systemInstruction: `${systemInstruction}\nExtract requirements from the job posting. Separate required from preferred skills and use null for unstated details.`,
-    parts: [{ text: `<job_posting>${job.title}\n${job.description.slice(0, 8000)}</job_posting>` }],
-    schema: jobRequirementsSchema,
-  });
-}
-
 export async function syncJobSource(source) {
   if (source.adapter === "manual") return { synced: 0, skipped: 0 };
   const { postings, skipped: invalidItems } = source.adapter === "greenhouse" ? await fetchGreenhouse(source) : await fetchLever(source);
@@ -126,7 +114,7 @@ export async function syncJobSource(source) {
             currency: current.salary_currency,
           },
         }
-        : await extractRequirements(posting);
+        : await extractJobRequirements(posting);
       const record = {
         source_id: source.id,
         source: source.adapter,

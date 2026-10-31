@@ -2,10 +2,26 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ from: vi.fn() }));
 vi.mock("../utils/supabase.js", () => ({ supabaseAdmin: { from: mocks.from } }));
+const matchingMocks = vi.hoisted(() => ({
+  extractJobRequirements: vi.fn(),
+  refreshRecruiterJobMatches: vi.fn(),
+}));
+vi.mock("./jobRequirements.js", () => ({ extractJobRequirements: matchingMocks.extractJobRequirements }));
+vi.mock("./recruiterMatching.js", () => ({ refreshRecruiterJobMatches: matchingMocks.refreshRecruiterJobMatches }));
 
 import { createRecruiterJob, scheduleRecruiterInterview, updateRecruiterApplication, updateRecruiterJob } from "./recruiterJobs.js";
 
-beforeEach(() => mocks.from.mockReset());
+beforeEach(() => {
+  mocks.from.mockReset();
+  matchingMocks.extractJobRequirements.mockReset().mockResolvedValue({
+    required_skills: [],
+    preferred_skills: [],
+    min_experience_months: 0,
+    is_remote: false,
+    eligibility_constraints: [],
+  });
+  matchingMocks.refreshRecruiterJobMatches.mockReset().mockResolvedValue([]);
+});
 
 describe("recruiter job service", () => {
   it("uses the approved company profile when creating a job", async () => {
@@ -21,13 +37,19 @@ describe("recruiter job service", () => {
       ? profileQuery
       : { insert, select, single });
 
-    await createRecruiterJob("recruiter-1", { title: "Engineer", description: "Build reliable services." });
+    await createRecruiterJob("recruiter-1", {
+      title: "Engineer",
+      description: "Build reliable services.",
+      required_skills: ["TypeScript"],
+    });
 
     expect(insert).toHaveBeenCalledWith(expect.objectContaining({
       recruiter_id: "recruiter-1",
       company_name: "Acme",
       title: "Engineer",
+      required_skills: ["TypeScript"],
     }));
+    expect(matchingMocks.refreshRecruiterJobMatches).toHaveBeenCalledWith("job-1");
   });
 
   it("scopes application status updates to the owning recruiter", async () => {

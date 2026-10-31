@@ -25,6 +25,7 @@ import { isAllowedClientOrigin } from "./utils/corsOrigin.js";
 import { answerMockInterview, deleteMockInterview, finishMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
 import { searchCandidates, getCandidateDetail, sendRecruiterInquiry, listRecruiterInquiries, listCandidateInquiries, respondToInquiry } from "./services/recruiter.js";
+import { revokeRecruiterAccess } from "./services/adminRecruiters.js";
 import {
   addRecruiterShortlist, applyToRecruiterJob, createRecruiterJob, listCandidateApplications,
   listOpenRecruiterJobs, listRecruiterApplications, listRecruiterInterviews, listRecruiterJobs,
@@ -112,8 +113,10 @@ const meSchema = z.object({
 router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
   const update = { updated_at: new Date().toISOString() };
   if (req.body.full_name !== undefined) update.full_name = req.body.full_name;
-  if (req.body.consent_ai_processing === true) update.consent_at = new Date().toISOString();
-  if (req.body.consent_ai_processing === false) update.consent_at = null;
+  if (req.body.consent_ai_processing !== undefined) {
+    update.consent_ai_processing = req.body.consent_ai_processing;
+    update.consent_at = req.body.consent_ai_processing ? new Date().toISOString() : null;
+  }
 
   let savedData = { id: req.user.id, full_name: req.body.full_name || req.user.user_metadata?.full_name };
   try {
@@ -512,11 +515,12 @@ router.post("/notifications/read-all", validate(emptyBodySchema), asyncRoute(asy
 }));
 
 router.get("/account/export", asyncRoute(async (req, res) => {
-  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "skill_gap_reports", "notifications", "mock_interviews", "recruiter_access_requests", "recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"];
+  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "recruiter_job_matches", "skill_gap_reports", "notifications", "mock_interviews", "recruiter_access_requests", "recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"];
   const entries = await Promise.all(tables.map(async (table) => {
     const ownerField = table === "profiles" ? "id"
       : table === "recruiter_access_requests" ? "user_id"
-        : ["recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"].includes(table) ? "recruiter_id"
+        : table === "recruiter_job_matches" ? "candidate_id"
+          : ["recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"].includes(table) ? "recruiter_id"
           : "user_id";
     const { data, error } = await supabaseAdmin.from(table).select("*").eq(ownerField, req.user.id);
     if (error) throw new AppError(500, "DATABASE_ERROR", `Could not export ${table}.`);
@@ -608,6 +612,10 @@ router.patch("/admin/recruiter-requests/:id", requireAdmin, uuidParam("id"), asy
   return send(res, data);
 }));
 
+router.delete("/admin/recruiter-requests/:id", requireAdmin, uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await revokeRecruiterAccess(req.params.id));
+}));
+
 // --- Recruiter & Outreach Endpoints ---
 router.get("/recruiter/candidates", requireRecruiter, asyncRoute(async (req, res) => {
   const candidates = await searchCandidates({
@@ -694,8 +702,8 @@ router.patch("/recruiter/interviews/:id", requireRecruiter, uuidParam("id"), asy
   return send(res, await updateRecruiterInterview(req.user.id, req.params.id, req.body));
 }));
 
-router.get("/jobs/recruiter-posts", requireCandidate, asyncRoute(async (_req, res) => {
-  return send(res, await listOpenRecruiterJobs());
+router.get("/jobs/recruiter-posts", requireCandidate, asyncRoute(async (req, res) => {
+  return send(res, await listOpenRecruiterJobs(req.user.id));
 }));
 router.post("/jobs/recruiter-posts/:id/applications", requireCandidate, uuidParam("id"), asyncRoute(async (req, res) => {
   return send(res, await applyToRecruiterJob(req.user.id, req.params.id, req.body), 201);

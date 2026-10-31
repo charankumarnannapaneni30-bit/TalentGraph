@@ -12,7 +12,10 @@ export function buildJobMatchEmail(notifications, clientOrigin) {
   const isReopenedOnly = notifications.every((notification) => notification.type === "job_reopened");
   const subject = isReopenedOnly ? "A matched job has reopened" : "New job matches are ready";
   const jobs = notifications.map((notification) => {
-    const url = new URL(`/app/jobs/${encodeURIComponent(notification.job_id)}`, clientOrigin).toString();
+    const path = notification.recruiter_job_id
+      ? "/app/jobs"
+      : `/app/jobs/${encodeURIComponent(notification.job_id)}`;
+    const url = new URL(path, clientOrigin).toString();
     return {
       title: notification.title,
       body: notification.body,

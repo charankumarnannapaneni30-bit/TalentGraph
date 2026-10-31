@@ -13,20 +13,21 @@ export default function FeedbackToasts() {
   }, []);
 
   useEffect(() => {
+    const activeTimers = timers.current;
     const handleFeedback = (event) => {
       const { type, message } = event.detail || {};
       if (!["success", "error"].includes(type) || typeof message !== "string" || !message.trim()) return;
 
       const id = ++nextId.current;
       setToasts((current) => [...current, { id, type, message: message.trim() }].slice(-4));
-      timers.current.set(id, setTimeout(() => dismiss(id), type === "success" ? 4200 : 6500));
+      activeTimers.set(id, setTimeout(() => dismiss(id), type === "success" ? 4200 : 6500));
     };
 
     window.addEventListener("talentgraph:feedback", handleFeedback);
     return () => {
       window.removeEventListener("talentgraph:feedback", handleFeedback);
-      timers.current.forEach(clearTimeout);
-      timers.current.clear();
+      activeTimers.forEach(clearTimeout);
+      activeTimers.clear();
     };
   }, [dismiss]);
 

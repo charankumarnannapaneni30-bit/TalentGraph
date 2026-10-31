@@ -47,9 +47,26 @@ const disclaimer = "AI-generated insights are advisory and based only on the inf
 
 function messageTone(message) {
   const text = String(message || "").toLowerCase();
-  if (/\b(could not|couldn't|couldn’t|failed|failure|error|unavailable|blocked|denied|too large|no audio|no microphone|not supported|not found|not configured|timed out|cannot|can't|required|invalid|exceeded|busy|already finished|not approved)\b/.test(text)) return "negative";
-  if (/\b(received|ready|saved|updated|created|completed|enabled|withdrawn|deleted|marked as read|successfully|queued|generated|approved|rejected|shortlisted|scheduled|posted|accepted|connected|sent|exported|restored|reopened|closed|declined|uploaded|analyzed|added|removed|signed in|submitted|check your email)\b/.test(text)) return "positive";
+  if (/\b(could not|couldn't|couldn’t|failed|failure|error|unavailable|blocked|denied|too large|no audio|no microphone|not supported|not found|not configured|timed out|cannot|can't|required|invalid|exceeded|busy|already finished|not approved|incorrect|not confirmed|confirm your email)\b/.test(text)) return "negative";
+  if (/\b(received|ready|saved|updated|created|completed|enabled|withdrawn|deleted|marked as read|successfully|queued|generated|approved|rejected|revoked|shortlisted|scheduled|posted|accepted|connected|sent|exported|restored|reopened|closed|declined|uploaded|analyzed|added|removed|signed in|submitted|check your email)\b/.test(text)) return "positive";
   return "neutral";
+}
+
+function shouldOpenRecruiterAccess(account, session) {
+  const requestStatus = account?.recruiter_access_request?.status;
+  return requestStatus === "pending" || requestStatus === "rejected"
+    || (!account?.recruiter_access_request && session?.user?.user_metadata?.account_type === "recruiter");
+}
+
+function authErrorMessage(error) {
+  const message = error?.message || "Authentication failed. Please try again.";
+  if (/email not confirmed|email_not_confirmed/i.test(message)) {
+    return "Please confirm your email using the link we sent, then sign in again.";
+  }
+  if (/invalid login credentials/i.test(message)) {
+    return "Email or password is incorrect. Check your details or create an account if you’re new.";
+  }
+  return message;
 }
 
 function Brand({ light = false }) {
@@ -133,6 +150,11 @@ function AuthPage({ mode }) {
         ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.full_name, consent_ai_processing: true, account_type: accountType, ...(accountType === "recruiter" ? { company_name: values.company_name } : {}) } } })
         : await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
       if (result.error) throw result.error;
+      if (!register && accountType === "candidate") {
+        notifyFeedback("success", "Signed in successfully.");
+        navigate("/app/dashboard", { replace: true });
+        return;
+      }
       if (register && !result.data.session) {
         setMessage(`Check your email to confirm your account, then sign in as ${accountType === "recruiter" ? "Recruiter" : "Candidate"}.`);
         notifyFeedback("success", "Account created. Check your email to confirm it.");
@@ -182,8 +204,9 @@ function AuthPage({ mode }) {
       notifyFeedback("success", "Signed in successfully.");
       navigate("/app/dashboard");
     } catch (error) {
-      setMessage(error.message || "Authentication failed. Please try again.");
-      notifyFeedback("error", error.message || "Authentication failed. Please try again.");
+      const friendlyMessage = authErrorMessage(error);
+      setMessage(friendlyMessage);
+      notifyFeedback("error", friendlyMessage);
     }
   };
   const heading = register ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "reset" ? "Choose a new password" : "Welcome back";
@@ -218,7 +241,7 @@ function SignedInRedirect({ session }) {
   if (error) return <LoadingError error={error} onRetry={refetch} />;
   if (account?.role === "admin") return <Navigate to="/app/admin/dashboard" replace />;
   if (account?.role === "recruiter") return <Navigate to="/app/recruiter/dashboard" replace />;
-  if (account?.recruiter_access_request || session?.user?.user_metadata?.account_type === "recruiter") return <Navigate to="/app/recruiter-access" replace />;
+  if (shouldOpenRecruiterAccess(account, session)) return <Navigate to="/app/recruiter-access" replace />;
   return <Navigate to="/app/dashboard" replace />;
 }
 
@@ -227,27 +250,29 @@ function Protected({ session }) {
 }
 
 function RecruiterRoute({ session }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["account-role", session?.user?.id],
     queryFn: () => api("/me"),
     enabled: Boolean(session?.user?.id),
   });
   if (isLoading) return <LoadingState label="Checking recruiter access…" />;
-  return data?.role === "recruiter" ? <Outlet /> : data?.recruiter_access_request || data?.user?.user_metadata?.account_type === "recruiter"
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  return data?.role === "recruiter" ? <Outlet /> : shouldOpenRecruiterAccess(data, session)
     ? <Navigate to="/app/recruiter-access" replace />
     : <Navigate to="/app/dashboard" replace />;
 }
 
 function CandidateRoute({ session }) {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ["account-role", session?.user?.id],
     queryFn: () => api("/me"),
     enabled: Boolean(session?.user?.id),
   });
   if (isLoading) return <LoadingState label="Checking account access…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
   if (data?.role === "admin") return <Navigate to="/app/admin/dashboard" replace />;
   if (data?.role === "recruiter") return <Navigate to="/app/recruiter/dashboard" replace />;
-  if (data?.recruiter_access_request || data?.user?.user_metadata?.account_type === "recruiter") return <Navigate to="/app/recruiter-access" replace />;
+  if (shouldOpenRecruiterAccess(data, session)) return <Navigate to="/app/recruiter-access" replace />;
   return <Outlet />;
 }
 
@@ -1110,12 +1135,15 @@ function RecruiterJobBoard() {
     <h3>Jobs posted by recruiters</h3>
     <p>Apply here to send a request directly to the recruiter. Your application is visible only to the recruiter who posted that job.</p>
     {notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
-    {jobs.length === 0 ? <p>No recruiter-posted jobs are open right now.</p> : <div className="resource-grid">{jobs.map((job) => {
+    {jobs.length === 0 ? <p>No recruiter-posted jobs match your current profile yet. Build or refresh your evidence-based profile, and check back when recruiters post roles matching your skills.</p> : <div className="resource-grid">{jobs.map((job) => {
       const application = applied.get(job.id);
       return <article className="content-card resource-card" key={job.id}>
+        <div className="resource-card-top"><span className="score-pill">{job.compatibility_score}% fit</span></div>
         <h3>{job.title}</h3>
         <small className="company-line">{job.company_name}{job.location ? ` · ${job.location}` : ""}{job.job_type ? ` · ${job.job_type.replace("_", " ")}` : ""}</small>
         <p>{job.description}</p>
+        {job.matched_skills?.length > 0 && <small className="company-line">Matching skills: {job.matched_skills.join(", ")}</small>}
+        {job.missing_skills?.length > 0 && <small className="company-line">Skills to grow: {job.missing_skills.join(", ")}</small>}
         {application
           ? <span className={`status-tag status-${application.status}`}>Application {application.status}</span>
           : selectedJob === job.id
@@ -1267,7 +1295,7 @@ function NotificationContent({ data, onMessage }) {
       onMessage("Notification deleted.");
     } catch (error) { onMessage(error.message); }
   };
-  return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className={`resource-row notification-row notification-${notificationTone(item.type)}`} key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small></div><div className="notification-actions">{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}<Button variant="danger" aria-label={`Delete ${item.title} notification`} onClick={() => deleteNotification(item)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></>;
+  return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className={`resource-row notification-row notification-${notificationTone(item.type)}`} key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small>{item.recruiter_job_id && <Link className="text-link" to="/app/jobs">View matching jobs <ArrowRight size={14} /></Link>}</div><div className="notification-actions">{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}<Button variant="danger" aria-label={`Delete ${item.title} notification`} onClick={() => deleteNotification(item)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></>;
 }
 
 function SkillGapForm({ onMessage, onCreated }) {
@@ -1422,13 +1450,30 @@ function AdminRecruiterRequestsPage() {
       setBusyId("");
     }
   };
+  const revoke = async (request) => {
+    const confirmed = window.confirm(
+      `Revoke recruiter access for ${request.email}? Their account will remain, move to the candidate role, and any open recruiter job postings will be closed.`,
+    );
+    if (!confirmed) return;
+    try {
+      setBusyId(request.id);
+      await api(`/admin/recruiter-requests/${request.id}`, { method: "DELETE" });
+      setNotice(`Recruiter access for ${request.email} was revoked. Their account and history were retained.`);
+      await load();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusyId("");
+    }
+  };
   return <div className="page-enter">
     <PageTitle eyebrow="ACCOUNT SECURITY" title="Recruiter approvals" description="Review company details before enabling recruiter-only access to candidate search and job applications." />
-    {notice && <div className="form-message" role="status">{notice}</div>}
+    {notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
     {requests.length === 0 ? <div className="state-card"><Users size={26} /><b>No recruiter requests</b><p>Recruiter access requests will appear here.</p></div> : <div className="resource-list">{requests.map((request) => <article className="resource-row" key={request.id}>
       <div><b>{request.company_name}</b><small>{request.full_name} · {request.email}</small><small>Requested {new Date(request.created_at).toLocaleDateString()}</small></div>
       <span className={`status-tag status-${request.status}`}>{request.status}</span>
       {request.status === "pending" && <div className="card-actions"><Button disabled={busyId === request.id} onClick={() => review(request, "approved")}>Approve</Button><Button variant="secondary" disabled={busyId === request.id} onClick={() => review(request, "rejected")}>Reject</Button></div>}
+      {request.status === "approved" && <div className="card-actions"><Button variant="danger" disabled={busyId === request.id} onClick={() => revoke(request)}>{busyId === request.id ? "Removing…" : "Remove recruiter access"}</Button></div>}
     </article>)}</div>}
   </div>;
 }
@@ -1626,6 +1671,7 @@ function RecruiterJobsPage() {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    const parseSkillList = (value) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
     try {
       setBusy(true);
       await apiJson("/recruiter/jobs", "POST", {
@@ -1633,9 +1679,12 @@ function RecruiterJobsPage() {
         description: form.get("description"),
         location: form.get("location") || null,
         job_type: form.get("job_type") || null,
+        required_skills: parseSkillList(form.get("required_skills")),
+        preferred_skills: parseSkillList(form.get("preferred_skills")),
+        min_experience_months: Number(form.get("min_experience_months") || 0),
       });
       formElement.reset();
-      setNotice("Job posted. Candidates can now apply from Job matches.");
+      setNotice("Job posted. TalentGraph analyzed its requirements and notified candidates whose profiles match.");
       await load();
     } catch (error) {
       setNotice(error.message);
@@ -1687,6 +1736,9 @@ function RecruiterJobsPage() {
       <h3>Post a job</h3>
       <label className="field"><span>Job title</span><input name="title" required minLength="2" maxLength="200" /></label>
       <label className="field"><span>Description</span><textarea name="description" required minLength="10" maxLength="8000" rows="5" /></label>
+      <label className="field"><span>Required skills, comma-separated</span><input name="required_skills" required placeholder="e.g. JavaScript, React, SQL" /><small>AI will also extract job requirements from the description.</small></label>
+      <label className="field"><span>Preferred skills, comma-separated</span><input name="preferred_skills" placeholder="e.g. AWS, Docker" /></label>
+      <label className="field"><span>Minimum experience (months)</span><input name="min_experience_months" type="number" min="0" defaultValue="0" /></label>
       <div className="field-pair"><label className="field"><span>Location</span><input name="location" maxLength="200" placeholder="Remote or city" /></label><label className="field"><span>Job type</span><select name="job_type"><option value="">Not specified</option><option value="full_time">Full-time</option><option value="part_time">Part-time</option><option value="internship">Internship</option><option value="contract">Contract</option></select></label></div>
       <Button type="submit" disabled={busy}>{busy ? "Posting…" : "Post job"} <BriefcaseBusiness size={15} /></Button>
     </form>

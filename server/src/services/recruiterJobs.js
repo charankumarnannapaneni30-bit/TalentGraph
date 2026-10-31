@@ -3,12 +3,19 @@ import { supabaseAdmin } from "../utils/supabase.js";
 import { AppError } from "../utils/errors.js";
 import { logger } from "../utils/logger.js";
 import { getCandidateDetail } from "./recruiter.js";
+import { extractJobRequirements } from "./jobRequirements.js";
+import { refreshRecruiterJobMatches } from "./recruiterMatching.js";
+import { canonicalSkill } from "../config/skillSynonyms.js";
 
 const jobInputSchema = z.object({
   title: z.string().trim().min(2).max(200),
   description: z.string().trim().min(10).max(8000),
   location: z.string().trim().max(200).nullable().optional(),
   job_type: z.enum(["full_time", "part_time", "internship", "contract"]).nullable().optional(),
+  required_skills: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
+  preferred_skills: z.array(z.string().trim().min(1).max(100)).max(100).default([]),
+  min_experience_months: z.number().int().min(0).default(0),
+  max_experience_months: z.number().int().min(0).nullable().optional(),
 }).strict();
 
 const applicationInputSchema = z.object({
@@ -30,15 +37,52 @@ async function notifyCandidate(candidateId, title, body, interviewId) {
 
 export async function createRecruiterJob(recruiterId, input) {
   const parsed = jobInputSchema.parse(input);
+  if (parsed.max_experience_months != null && parsed.max_experience_months < parsed.min_experience_months) {
+    throw new AppError(422, "INVALID_EXPERIENCE_RANGE", "Maximum experience must be at least the minimum experience.");
+  }
   const { data: profile, error: profileError } = await supabaseAdmin.from("profiles")
     .select("company_name").eq("id", recruiterId).maybeSingle();
   if (profileError) throw new AppError(500, "DATABASE_ERROR", "Could not load your company profile.");
   if (!profile?.company_name) throw new AppError(409, "COMPANY_REQUIRED", "Add your company name before posting a job.");
 
+  const extracted = await extractJobRequirements(parsed);
+  const mergeSkills = (provided, extractedSkills) => [...new Map(
+    [...provided, ...(extractedSkills || [])].map((skill) => [canonicalSkill(skill), skill]),
+  ).values()];
+  const requiredSkills = mergeSkills(parsed.required_skills, extracted.required_skills);
+  const preferredSkills = mergeSkills(parsed.preferred_skills, extracted.preferred_skills)
+    .filter((skill) => !requiredSkills.some((required) => canonicalSkill(required) === canonicalSkill(skill)));
+  if (!requiredSkills.length && !preferredSkills.length) {
+    throw new AppError(422, "JOB_SKILLS_REQUIRED", "Add at least one required or preferred skill, or include skills in the job description.");
+  }
+  const minimumExperience = Math.max(parsed.min_experience_months, extracted.min_experience_months || 0);
+  const maximumExperience = parsed.max_experience_months ?? extracted.max_experience_months ?? null;
+  if (maximumExperience != null && maximumExperience < minimumExperience) {
+    throw new AppError(422, "INVALID_EXPERIENCE_RANGE", "The extracted maximum experience is below the minimum. Review the job details and try again.");
+  }
+
   const { data, error } = await supabaseAdmin.from("recruiter_jobs")
-    .insert({ ...parsed, recruiter_id: recruiterId, company_name: profile.company_name })
+    .insert({
+      ...parsed,
+      required_skills: requiredSkills,
+      preferred_skills: preferredSkills,
+      education_requirement: extracted.education_requirement || null,
+      min_experience_months: minimumExperience,
+      max_experience_months: maximumExperience,
+      is_remote: Boolean(extracted.is_remote || /\bremote\b/i.test(parsed.location || "")),
+      eligibility_constraints: extracted.eligibility_constraints || [],
+      application_deadline: extracted.application_deadline || null,
+      recruiter_id: recruiterId,
+      company_name: profile.company_name,
+    })
     .select("*").single();
   if (error) throw new AppError(500, "DATABASE_ERROR", "Could not create this job.");
+  try {
+    await refreshRecruiterJobMatches(data.id);
+  } catch (matchingError) {
+    logger.error({ jobId: data.id, code: matchingError.code || "MATCHING_FAILED" }, "Recruiter job was posted but candidate matching failed");
+    throw new AppError(500, "JOB_MATCHING_FAILED", `The job was posted, but candidate matches or notifications could not be completed. ${matchingError.message}`);
+  }
   return data;
 }
 
@@ -56,15 +100,25 @@ export async function updateRecruiterJob(recruiterId, jobId, input) {
     .select("*").maybeSingle();
   if (error) throw new AppError(500, "DATABASE_ERROR", "Could not update this job posting.");
   if (!data) throw new AppError(404, "JOB_NOT_FOUND", "Job posting not found.");
+  if (data.status === "open") {
+    try {
+      await refreshRecruiterJobMatches(jobId);
+    } catch (matchingError) {
+      logger.error({ jobId, code: matchingError.code || "MATCHING_FAILED" }, "Recruiter job reopened but matching refresh failed");
+      throw new AppError(500, "JOB_MATCHING_FAILED", `The job was reopened, but candidate matches or notifications could not be refreshed. ${matchingError.message}`);
+    }
+  }
   return data;
 }
 
-export async function listOpenRecruiterJobs() {
-  const { data, error } = await supabaseAdmin.from("recruiter_jobs")
-    .select("id, company_name, title, description, location, job_type, created_at")
-    .eq("status", "open").order("created_at", { ascending: false });
-  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load recruiter job postings.");
-  return data || [];
+export async function listOpenRecruiterJobs(candidateId) {
+  const { data, error } = await supabaseAdmin.from("recruiter_job_matches")
+    .select("id, compatibility_score, score_breakdown, matched_skills, missing_skills, recruiter_jobs!inner(id, company_name, title, description, location, job_type, is_remote, required_skills, preferred_skills, created_at)")
+    .eq("candidate_id", candidateId)
+    .eq("recruiter_jobs.status", "open")
+    .order("compatibility_score", { ascending: false });
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load recruiter job matches.");
+  return (data || []).map(({ recruiter_jobs: job, ...match }) => ({ ...job, ...match }));
 }
 
 export async function applyToRecruiterJob(candidateId, jobId, input) {

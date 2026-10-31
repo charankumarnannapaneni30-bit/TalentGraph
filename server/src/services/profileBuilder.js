@@ -7,6 +7,7 @@ import { systemInstruction } from "../ai/prompts/system.js";
 import { careerRecommendationsSchema, profileSchema } from "../ai/schemas/profile.js";
 import { matchJob } from "./matching.js";
 import { sendJobMatchNotificationEmail } from "./notificationEmails.js";
+import { refreshRecruiterMatchesForCandidate } from "./recruiterMatching.js";
 
 const selectData = async (table, selection, userId, filters = []) => {
   let query = supabaseAdmin.from(table).select(selection).eq("user_id", userId);
@@ -183,6 +184,11 @@ export async function buildProfile(userId) {
   const profile = await synthesizeProfile(userId);
   await buildCareers(userId, profile);
   await refreshMatches(userId, profile, profile.version === 1 ? "profile_unlock" : "new_match");
+  try {
+    await refreshRecruiterMatchesForCandidate(userId);
+  } catch (error) {
+    logger.warn({ code: error.code || "RECRUITER_MATCH_REFRESH_FAILED" }, "Candidate profile saved but recruiter job matches could not be refreshed");
+  }
   const { error } = await supabaseAdmin.from("notifications").insert({
     user_id: userId,
     type: "profile_ready",

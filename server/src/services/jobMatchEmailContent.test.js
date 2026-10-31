@@ -27,4 +27,16 @@ describe("job match email content", () => {
 
     expect(email.subject).toBe("A matched job has reopened");
   });
+
+  it("links recruiter job alerts to the candidate job matches page", () => {
+    const email = buildJobMatchEmail([{
+      type: "new_match",
+      title: "A new recruiter job matches your profile",
+      body: "Engineer at Acme matches your skills.",
+      recruiter_job_id: "recruiter-job-123",
+    }], "https://talentgraph.example");
+
+    expect(email.text).toContain("https://talentgraph.example/app/jobs");
+    expect(email.text).not.toContain("undefined");
+  });
 });
