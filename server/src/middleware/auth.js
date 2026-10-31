@@ -22,6 +22,20 @@ export function requireAdmin(req, _res, next) {
   return next();
 }
 
+export function requireRecruiter(req, _res, next) {
+  if (req.user?.app_metadata?.role !== "recruiter") {
+    return next(new AppError(403, "RECRUITER_ACCESS_REQUIRED", "An approved recruiter account is required."));
+  }
+  return next();
+}
+
+export function requireCandidate(req, _res, next) {
+  if (req.user?.app_metadata?.role === "recruiter" || req.user?.app_metadata?.role === "admin") {
+    return next(new AppError(403, "CANDIDATE_ACCESS_REQUIRED", "A candidate account is required."));
+  }
+  return next();
+}
+
 export async function requireConsent(req, _res, next) {
   try {
     const { data, error } = await supabaseAdmin.from("profiles")

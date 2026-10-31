@@ -29,8 +29,6 @@ const recruiterMenu = [
   ["Talent graph", "/app/recruiter/candidates", Users],
   ["Outreach & Inquiries", "/app/recruiter/inquiries", Send],
   ["Post a job", "/app/recruiter/jobs", BriefcaseBusiness],
-  ["Messages", "/app/inquiries", Mail],
-  ["Company profile", "/app/profile", UserRound],
 ];
 const disclaimer = "AI-generated insights are advisory and based only on the information you provided. They are not hiring decisions. Verify details with the employer.";
 
@@ -90,10 +88,15 @@ function AuthPage({ mode }) {
   const register = mode === "register";
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
-  const schema = mode === "forgot" ? z.object({ email: z.string().email() }) : mode === "reset" ? z.object({ password: z.string().min(8) }) : register ? registerSchema : loginSchema;
+  const [accountType, setAccountType] = useState("candidate");
+  const schema = mode === "forgot" ? z.object({ email: z.string().email() }) : mode === "reset" ? z.object({ password: z.string().min(8) }) : register
+    ? registerSchema.extend({ company_name: z.string().trim().min(2).max(200).optional() }).superRefine((values, context) => {
+      if (accountType === "recruiter" && !values.company_name) context.addIssue({ code: z.ZodIssueCode.custom, path: ["company_name"], message: "Company name is required for recruiter access." });
+    })
+    : loginSchema;
   const { register: field, handleSubmit, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(schema),
-    defaultValues: { email: "", password: "", full_name: "", consent_ai_processing: false },
+    defaultValues: { email: "", password: "", full_name: "", company_name: "", consent_ai_processing: false },
   });
   const onSubmit = async (values) => {
     setMessage("");
@@ -112,22 +115,54 @@ function AuthPage({ mode }) {
         return;
       }
       const result = register
-        ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.full_name, consent_ai_processing: true } } })
+        ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.full_name, consent_ai_processing: true, account_type: accountType, ...(accountType === "recruiter" ? { company_name: values.company_name } : {}) } } })
         : await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
       if (result.error) throw result.error;
-      if (register && !result.data.session) { setMessage("Check your email to confirm your account, then log in."); return; }
-      if (register) await apiJson("/me", "PATCH", { full_name: values.full_name, consent_ai_processing: true });
+      if (register && !result.data.session) { setMessage(`Check your email to confirm your account, then sign in as ${accountType === "recruiter" ? "Recruiter" : "Candidate"}.`); return; }
+      if (register) {
+        await apiJson("/me", "PATCH", { full_name: values.full_name, consent_ai_processing: true });
+        if (accountType === "recruiter") {
+          await apiJson("/recruiter/access-requests", "POST", { company_name: values.company_name });
+          navigate("/app/recruiter-access");
+          return;
+        }
+        navigate("/app/dashboard");
+        return;
+      }
+      const role = result.data.user?.app_metadata?.role || "candidate";
+      if (accountType === "recruiter") {
+        if (role === "recruiter") {
+          navigate("/app/recruiter/jobs");
+          return;
+        }
+        const companyName = result.data.user?.user_metadata?.company_name;
+        if (result.data.user?.user_metadata?.account_type === "recruiter" && companyName) {
+          await apiJson("/recruiter/access-requests", "POST", { company_name: companyName });
+          navigate("/app/recruiter-access");
+          return;
+        }
+        await supabase.auth.signOut();
+        throw new Error("This account does not have approved recruiter access. Register as a recruiter to request access.");
+      }
+      if (role === "recruiter") {
+        await supabase.auth.signOut();
+        throw new Error("This is a recruiter account. Choose Recruiter sign in to continue.");
+      }
       navigate("/app/dashboard");
     } catch (error) {
       setMessage(error.message || "Authentication failed. Please try again.");
     }
   };
   const heading = register ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "reset" ? "Choose a new password" : "Welcome back";
-  const subheading = register ? "Start building a clearer picture of your skills." : mode === "forgot" ? "We’ll send you a secure password reset link." : mode === "reset" ? "Choose a new password for your account." : "Sign in to continue exploring your career.";
+  const subheading = register ? accountType === "recruiter" ? "Request a verified recruiter account for your company." : "Start building a clearer picture of your skills." : mode === "forgot" ? "We’ll send you a secure password reset link." : mode === "reset" ? "Choose a new password for your account." : "Sign in to continue exploring your career.";
   return <main className="auth-page"><section className="auth-card page-enter"><Link to="/" className="back-link">← Back to home</Link><div className="auth-heading"><span className="auth-icon"><Sparkles size={20} /></span><h1>{heading}</h1><p>{subheading}</p></div>
     {message && <div className="form-message" role="alert">{message}</div>}
     <form onSubmit={handleSubmit(onSubmit)} className="auth-form">
+      {register
+        ? <label className="field"><span>Account type</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="candidate">Candidate</option><option value="recruiter">Recruiter (requires approval)</option></select></label>
+        : mode === "login" && <label className="field"><span>Sign in as</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="candidate">Candidate</option><option value="recruiter">Recruiter</option></select></label>}
       {register && <Field label="Full name" placeholder="Your name" autoComplete="name" error={errors.full_name?.message} {...field("full_name")} />}
+      {register && accountType === "recruiter" && <Field label="Company name" placeholder="Company you work for" autoComplete="organization" error={errors.company_name?.message} {...field("company_name")} />}
       {mode !== "reset" && <Field label="Email address" type="email" placeholder="you@example.com" autoComplete="email" error={errors.email?.message} {...field("email")} />}
       {mode !== "forgot" && <Field label="Password" type="password" placeholder={mode === "reset" ? "New password" : "At least 8 characters"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"} error={errors.password?.message} {...field("password")} />}
       {register && <label className="consent"><input type="checkbox" {...field("consent_ai_processing")} /><span>I consent to AI processing of the information I submit to generate career insights. I can withdraw this consent later.</span></label>}
@@ -144,6 +179,16 @@ function Protected({ session }) {
   return session ? <Outlet /> : <Navigate to="/login" replace />;
 }
 
+function RecruiterRoute({ session }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  if (isLoading) return <LoadingState label="Checking recruiter access…" />;
+  return data?.role === "recruiter" ? <Outlet /> : <Navigate to="/app/dashboard" replace />;
+}
+
 function AdminRoute({ session, children }) {
   return session?.user?.app_metadata?.role === "admin" ? children : <Navigate to="/app/dashboard" replace />;
 }
@@ -155,27 +200,22 @@ function Shell({ session, onSignOut }) {
   const accountMenuRef = useRef(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [latestNotifications, setLatestNotifications] = useState([]);
-  const [userRole, setUserRole] = useState(session?.user?.user_metadata?.role || "candidate");
+  const [userRole, setUserRole] = useState("candidate");
   const location = useLocation();
-  const navigate = useNavigate();
 
   useEffect(() => {
+    let active = true;
+    setUserRole("candidate");
     api("/me").then((me) => {
-      if (me?.role) setUserRole(me.role);
-    }).catch(() => {});
-    const handleRoleUpdate = () => {
-      api("/me").then((me) => {
-        if (me?.role) setUserRole(me.role);
-      }).catch(() => {});
-    };
-    window.addEventListener("talentgraph-role-updated", handleRoleUpdate);
-    return () => window.removeEventListener("talentgraph-role-updated", handleRoleUpdate);
-  }, []);
+      if (active && me?.role) setUserRole(me.role);
+    }).catch((error) => console.error("Could not load account role", error.message));
+    return () => { active = false; };
+  }, [session?.user?.id]);
 
   const isRecruiter = userRole === "recruiter";
   const baseMenu = isRecruiter ? recruiterMenu : candidateMenu;
   const visibleMenu = session?.user?.app_metadata?.role === "admin"
-    ? [...baseMenu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness]]
+    ? [...baseMenu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness], ["Recruiter approvals", "/app/admin/recruiters", Users]]
     : baseMenu;
   const current = visibleMenu.find((item) => location.pathname.startsWith(item[1]))?.[0] || "Workspace";
   const accountName = session?.user?.user_metadata?.full_name || "Your workspace";
@@ -241,25 +281,7 @@ function Shell({ session, onSignOut }) {
             <button className="account-trigger" type="button" aria-label="Open account menu" aria-controls="account-menu" aria-haspopup="true" aria-expanded={accountOpen} onClick={() => setAccountOpen((value) => !value)}><span className="avatar">{accountInitial}</span><ChevronDown size={15} /></button>
             {accountOpen && <div className="account-popover" id="account-menu">
               <div className="account-popover-user"><span className="account-popover-avatar">{accountInitial}</span><div><b>{accountName}</b><small>{accountEmail || (isRecruiter ? "Recruiter account" : "Candidate account")}</small></div></div>
-              <button
-                type="button"
-                className="role-toggle-btn"
-                onClick={async () => {
-                  const nextRole = isRecruiter ? "candidate" : "recruiter";
-                  try {
-                    await apiJson("/me", "PATCH", { role: nextRole });
-                    setUserRole(nextRole);
-                    setAccountOpen(false);
-                    window.dispatchEvent(new Event("talentgraph-role-updated"));
-                    navigate(nextRole === "recruiter" ? "/app/recruiter/candidates" : "/app/dashboard");
-                  } catch (e) {
-                    console.error(e);
-                  }
-                }}
-              >
-                <Users size={16} />
-                <span>Switch to {isRecruiter ? "Candidate" : "Recruiter"} mode</span>
-              </button>
+              {!isRecruiter && <Link to="/app/recruiter-access" onClick={() => setAccountOpen(false)}><Users size={17} />Request recruiter access</Link>}
               <Link to="/app/profile" onClick={() => setAccountOpen(false)}><UserRound size={17} />My profile</Link>
               <Link to="/app/preferences" onClick={() => setAccountOpen(false)}><Settings size={17} />Preferences</Link>
               <Link to="/app/settings" onClick={() => setAccountOpen(false)}><ShieldCheck size={17} />Settings &amp; privacy</Link>
@@ -276,6 +298,36 @@ function Shell({ session, onSignOut }) {
 
 function PageTitle({ eyebrow, title, description, action }) {
   return <div className="page-title"><div><div className="eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>;
+}
+
+function RecruiterAccessPage({ session }) {
+  const [request, setRequest] = useState(undefined);
+  const [companyName, setCompanyName] = useState(session?.user?.user_metadata?.company_name || "");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try { setRequest(await api("/recruiter/access-request")); } catch (error) { setNotice(error.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const submit = async (event) => {
+    event.preventDefault();
+    try {
+      setBusy(true);
+      setNotice("");
+      setRequest(await apiJson("/recruiter/access-requests", "POST", { company_name: companyName }));
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="page-enter">
+    <PageTitle eyebrow="RECRUITER ACCOUNT" title="Recruiter access" description="Recruiter access is approved by an administrator. A candidate account cannot open recruiter tools or candidate data." />
+    {notice && <div className="form-message form-message-negative" role="alert">{notice}</div>}
+    {request?.status === "pending" || request?.status === "approved"
+      ? <section className="content-card"><h3>{request.status === "approved" ? "Recruiter access approved" : "Request under review"}</h3><p>Company: <b>{request.company_name}</b></p><p>{request.status === "approved" ? "Sign out and sign in with Recruiter selected to refresh your access." : "Your recruiter account will be enabled after an administrator reviews your company details."}</p></section>
+      : <form className="content-card admin-form" onSubmit={submit}><h3>Request a recruiter account</h3><p>Provide your company name. An administrator must approve your account before recruiter pages or candidate applications are available.</p><label className="field"><span>Company name</span><input required minLength="2" maxLength="200" value={companyName} onChange={(event) => setCompanyName(event.target.value)} /></label><Button type="submit" disabled={busy || companyName.trim().length < 2}>{busy ? "Submitting…" : "Submit for approval"} <ArrowRight size={16} /></Button></form>}
+  </div>;
 }
 
 function Disclaimer() {
@@ -492,7 +544,7 @@ function ResourcePage({ resource, session }) {
   const empty = (Array.isArray(data) && data.length === 0) || (resource === "profile" && !data?.id) || (resource === "evidence" && !data?.supported_skills) || (resource === "jobs" && !data?.items?.length);
   return <div className="page-enter"><PageTitle eyebrow={eyebrow} title={title} description={description} action={action} />{["profile", "evidence", "careers", "jobs", "skill-gaps"].includes(resource) && <Disclaimer />}{notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
     {resource === "documents" && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
-    {resource === "jobs" && <JobFilters onApply={setJobFilters} />}
+    {resource === "jobs" && <><JobFilters onApply={setJobFilters} /><RecruiterJobBoard /></>}
     {resource === "skill-gaps" && hasData && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
     {isLoading && !hasData ? <LoadingState label={`Loading ${title.toLowerCase()}…`} /> : error && !hasData ? <LoadingError error={error} onRetry={refetch} /> : <>{error && hasData && <div className="form-message" role="status">Couldn’t refresh this information. Showing the last loaded data. <Button variant="secondary" onClick={refetch}>Retry</Button></div>}{empty ? <EmptyResource resource={resource} profileReady={candidateProfile?.id ? true : isProfileLoading ? undefined : false} /> : <ResourceContent resource={resource} data={data} busy={busy} onMessage={setNotice} onRefresh={refetch} />}</>}
   </div>;
@@ -882,6 +934,54 @@ function InterviewPage() {
   </div>;
 }
 
+function RecruiterJobBoard() {
+  const [jobs, setJobs] = useState([]);
+  const [applications, setApplications] = useState([]);
+  const [selectedJob, setSelectedJob] = useState("");
+  const [message, setMessage] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    Promise.all([api("/jobs/recruiter-posts"), api("/applications")])
+      .then(([jobRows, applicationRows]) => { setJobs(jobRows || []); setApplications(applicationRows || []); })
+      .catch((error) => setNotice(error.message));
+  }, []);
+  const applied = new Map(applications.map((application) => [application.job_id, application]));
+  const apply = async (event, jobId) => {
+    event.preventDefault();
+    try {
+      setBusy(true);
+      const application = await apiJson(`/jobs/recruiter-posts/${jobId}/applications`, "POST", { message });
+      setApplications((rows) => [...rows, { ...application, job_id: jobId }]);
+      setSelectedJob("");
+      setMessage("");
+      setNotice("Application sent to the recruiter.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <section className="content-card" style={{ marginBottom: "20px" }}>
+    <h3>Jobs posted by recruiters</h3>
+    <p>Apply here to send a request directly to the recruiter. Your application is visible only to the recruiter who posted that job.</p>
+    {notice && <div className="form-message" role="status">{notice}</div>}
+    {jobs.length === 0 ? <p>No recruiter-posted jobs are open right now.</p> : <div className="resource-grid">{jobs.map((job) => {
+      const application = applied.get(job.id);
+      return <article className="content-card resource-card" key={job.id}>
+        <h3>{job.title}</h3>
+        <small className="company-line">{job.company_name}{job.location ? ` · ${job.location}` : ""}{job.job_type ? ` · ${job.job_type.replace("_", " ")}` : ""}</small>
+        <p>{job.description}</p>
+        {application
+          ? <span className={`status-tag status-${application.status}`}>Application {application.status}</span>
+          : selectedJob === job.id
+            ? <form className="admin-form" onSubmit={(event) => apply(event, job.id)}><label className="field"><span>Message to the recruiter</span><textarea required minLength="10" maxLength="3000" rows="4" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Introduce yourself and explain your interest in this role." /></label><div className="card-actions"><Button type="submit" disabled={busy}>{busy ? "Sending…" : "Send application"} <Send size={15} /></Button><Button type="button" variant="secondary" onClick={() => setSelectedJob("")}>Cancel</Button></div></form>
+            : <Button onClick={() => setSelectedJob(job.id)}>Apply to this job <ArrowRight size={15} /></Button>}
+      </article>;
+    })}</div>}
+  </section>;
+}
+
 function ResourceContent({ resource, data, busy, onMessage, onRefresh }) {
   if (resource === "settings") return <SettingsContent data={data} onMessage={onMessage} />;
   if (resource === "preferences") return <PreferencesContent data={data} onMessage={onMessage} />;
@@ -1158,6 +1258,122 @@ function AdminJobsPage({ isRecruiter = false }) {
   );
 }
 
+function AdminRecruiterRequestsPage() {
+  const [requests, setRequests] = useState([]);
+  const [notice, setNotice] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const load = useCallback(async () => {
+    try { setRequests(await api("/admin/recruiter-requests")); } catch (error) { setNotice(error.message); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const review = async (request, status) => {
+    try {
+      setBusyId(request.id);
+      await apiJson(`/admin/recruiter-requests/${request.id}`, "PATCH", { status });
+      setNotice(status === "approved" ? `${request.email} was approved as a recruiter.` : `Request from ${request.email} was rejected.`);
+      await load();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+  return <div className="page-enter">
+    <PageTitle eyebrow="ACCOUNT SECURITY" title="Recruiter approvals" description="Review company details before enabling recruiter-only access to candidate search and job applications." />
+    {notice && <div className="form-message" role="status">{notice}</div>}
+    {requests.length === 0 ? <div className="state-card"><Users size={26} /><b>No recruiter requests</b><p>Recruiter access requests will appear here.</p></div> : <div className="resource-list">{requests.map((request) => <article className="resource-row" key={request.id}>
+      <div><b>{request.company_name}</b><small>{request.full_name} · {request.email}</small><small>Requested {new Date(request.created_at).toLocaleDateString()}</small></div>
+      <span className={`status-tag status-${request.status}`}>{request.status}</span>
+      {request.status === "pending" && <div className="card-actions"><Button disabled={busyId === request.id} onClick={() => review(request, "approved")}>Approve</Button><Button variant="secondary" disabled={busyId === request.id} onClick={() => review(request, "rejected")}>Reject</Button></div>}
+    </article>)}</div>}
+  </div>;
+}
+
+function RecruiterJobsPage() {
+  const [jobs, setJobs] = useState([]);
+  const [applications, setApplications] = useState([]);
+  const [companyName, setCompanyName] = useState("");
+  const [selectedJob, setSelectedJob] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(async () => {
+    try {
+      const [me, jobRows] = await Promise.all([api("/me"), api("/recruiter/jobs")]);
+      setCompanyName(me.company_name || "");
+      setJobs(jobRows || []);
+    } catch (error) {
+      setNotice(error.message);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const createJob = async (event) => {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      setBusy(true);
+      await apiJson("/recruiter/jobs", "POST", {
+        title: form.get("title"),
+        description: form.get("description"),
+        location: form.get("location") || null,
+        job_type: form.get("job_type") || null,
+      });
+      formElement.reset();
+      setNotice("Job posted. Candidates can now apply from Job matches.");
+      await load();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const viewApplications = async (jobId) => {
+    if (selectedJob === jobId) { setSelectedJob(""); return; }
+    try {
+      setBusy(true);
+      setApplications(await api(`/recruiter/jobs/${jobId}/applications`));
+      setSelectedJob(jobId);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const updateApplication = async (application, status) => {
+    try {
+      setBusy(true);
+      await apiJson(`/recruiter/applications/${application.id}`, "PATCH", { status });
+      setApplications((rows) => rows.map((row) => row.id === application.id ? { ...row, status } : row));
+      setNotice("Application status updated.");
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="page-enter">
+    <PageTitle eyebrow="RECRUITER WORKSPACE" title="Jobs & applications" description={`Post openings for ${companyName || "your company"} and review candidate requests for each job.`} />
+    {notice && <div className="form-message" role="status">{notice}</div>}
+    <form className="content-card admin-form" onSubmit={createJob}>
+      <h3>Post a job</h3>
+      <label className="field"><span>Job title</span><input name="title" required minLength="2" maxLength="200" /></label>
+      <label className="field"><span>Description</span><textarea name="description" required minLength="10" maxLength="8000" rows="5" /></label>
+      <div className="field-pair"><label className="field"><span>Location</span><input name="location" maxLength="200" placeholder="Remote or city" /></label><label className="field"><span>Job type</span><select name="job_type"><option value="">Not specified</option><option value="full_time">Full-time</option><option value="part_time">Part-time</option><option value="internship">Internship</option><option value="contract">Contract</option></select></label></div>
+      <Button type="submit" disabled={busy}>{busy ? "Posting…" : "Post job"} <BriefcaseBusiness size={15} /></Button>
+    </form>
+    <section className="content-card" style={{ marginTop: "20px" }}><h3>Your job postings</h3>
+      {jobs.length === 0 ? <p>You have not posted any jobs yet.</p> : <div className="resource-list">{jobs.map((job) => <article className="resource-row" key={job.id}>
+        <div><b>{job.title}</b><small>{job.company_name} · {job.location || "Location not specified"} · {job.status}</small></div>
+        <Button variant="secondary" disabled={busy} onClick={() => viewApplications(job.id)}>{selectedJob === job.id ? "Hide applications" : "View applications"}</Button>
+        {selectedJob === job.id && <div style={{ flexBasis: "100%" }}>{applications.length === 0 ? <p>No applications for this job yet.</p> : applications.map((application) => <article className="inquiry-card" key={application.id}>
+          <div className="inquiry-header"><div><h4>{application.candidate_name}</h4><small>{application.job_title} · {new Date(application.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${application.status}`}>{application.status}</span></div>
+          <p>{application.message}</p>
+          {application.status === "pending" && <div className="card-actions"><Button variant="secondary" disabled={busy} onClick={() => updateApplication(application, "reviewing")}>Mark reviewing</Button><Button disabled={busy} onClick={() => updateApplication(application, "accepted")}>Accept</Button><Button variant="danger" disabled={busy} onClick={() => updateApplication(application, "declined")}>Decline</Button></div>}
+        </article>)}</div>}
+      </article>)}</div>}
+    </section>
+  </div>;
+}
 
 function InquiryModal({ candidate, onClose, onSent }) {
   const [roleTitle, setRoleTitle] = useState("");
@@ -1580,8 +1796,8 @@ function App() {
     <Routes>
       <Route element={<PublicLayout />}>
         <Route index element={<Landing />} />
-        <Route path="/login" element={session ? <Navigate to="/app/dashboard" replace /> : <AuthPage mode="login" />} />
-        <Route path="/register" element={session ? <Navigate to="/app/dashboard" replace /> : <AuthPage mode="register" />} />
+        <Route path="/login" element={session ? <Navigate to={session.user.app_metadata?.role === "recruiter" ? "/app/recruiter/jobs" : "/app/dashboard"} replace /> : <AuthPage mode="login" />} />
+        <Route path="/register" element={session ? <Navigate to={session.user.app_metadata?.role === "recruiter" ? "/app/recruiter/jobs" : "/app/dashboard"} replace /> : <AuthPage mode="register" />} />
         <Route path="/forgot-password" element={<AuthPage mode="forgot" />} />
         <Route path="/reset-password" element={<AuthPage mode="reset" />} />
       </Route>
@@ -1589,6 +1805,8 @@ function App() {
         <Route path="/app" element={<Shell session={session} onSignOut={signOut} />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<Dashboard session={session} />} />
+          <Route path="recruiter-access" element={<RecruiterAccessPage session={session} />} />
+          <Route path="inquiries" element={<CandidateInquiriesPage />} />
           {Object.keys(routeMeta).filter((resource) => resource !== "admin/jobs").map((resource) => (
             <Route key={resource} path={resource} element={<ResourcePage resource={resource} session={session} />} />
           ))}
@@ -1596,6 +1814,12 @@ function App() {
           <Route path="jobs/:id" element={<ResourceDetailPage resource="job" session={session} />} />
           <Route path="interview" element={<InterviewPage />} />
           <Route path="admin/jobs" element={<AdminRoute session={session}><AdminJobsPage /></AdminRoute>} />
+          <Route path="admin/recruiters" element={<AdminRoute session={session}><AdminRecruiterRequestsPage /></AdminRoute>} />
+          <Route element={<RecruiterRoute session={session} />}>
+            <Route path="recruiter/candidates" element={<RecruiterCandidatesPage />} />
+            <Route path="recruiter/inquiries" element={<RecruiterInquiriesPage />} />
+            <Route path="recruiter/jobs" element={<RecruiterJobsPage />} />
+          </Route>
         </Route>
       </Route>
       <Route path="*" element={<NotFound />} />

@@ -8,7 +8,7 @@ import { env } from "./config/env.js";
 import { supabaseAdmin } from "./utils/supabase.js";
 import { AppError } from "./utils/errors.js";
 import { logger } from "./utils/logger.js";
-import { requireAuth, requireAdmin, requireConsent } from "./middleware/auth.js";
+import { requireAuth, requireAdmin, requireRecruiter, requireCandidate, requireConsent } from "./middleware/auth.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { validate } from "./middleware/validate.js";
 import { createDocument, removeDocument } from "./services/documents.js";
@@ -25,6 +25,7 @@ import { isAllowedClientOrigin } from "./utils/corsOrigin.js";
 import { answerMockInterview, deleteMockInterview, finishMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
 import { searchCandidates, getCandidateDetail, sendRecruiterInquiry, listRecruiterInquiries, listCandidateInquiries, respondToInquiry } from "./services/recruiter.js";
+import { applyToRecruiterJob, createRecruiterJob, listCandidateApplications, listOpenRecruiterJobs, listRecruiterApplications, listRecruiterJobs, updateRecruiterApplication } from "./services/recruiterJobs.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -71,19 +72,17 @@ router.use(requireAuth);
 
 router.get("/me", asyncRoute(async (req, res) => {
   const { data: profile, error: profileError } = await supabaseAdmin.from("profiles")
-    .select("id, full_name, consent_ai_processing, consent_at, created_at").eq("id", req.user.id).maybeSingle();
+    .select("id, full_name, company_name, consent_ai_processing, consent_at, created_at").eq("id", req.user.id).maybeSingle();
   if (profileError) throw new AppError(500, "DATABASE_ERROR", "Could not load your profile.");
   const { data: preferences, error: preferenceError } = await supabaseAdmin.from("preferences")
     .select("*").eq("user_id", req.user.id).maybeSingle();
   if (preferenceError) throw new AppError(500, "DATABASE_ERROR", "Could not load your preferences.");
 
-  const role = req.user.app_metadata?.role || req.user.user_metadata?.role || profile?.role || "candidate";
-  const company_name = req.user.user_metadata?.company_name || profile?.company_name || "";
+  const role = req.user.app_metadata?.role || "candidate";
 
   return send(res, {
     ...profile,
     role,
-    company_name,
     user: { user_metadata: req.user.user_metadata, app_metadata: req.user.app_metadata },
     preferences: preferences || {},
   });
@@ -92,20 +91,16 @@ router.get("/me", asyncRoute(async (req, res) => {
 const meSchema = z.object({
   full_name: z.string().trim().min(2).max(120).optional(),
   consent_ai_processing: z.boolean().optional(),
-  role: z.enum(["candidate", "recruiter"]).optional(),
-  company_name: z.string().trim().max(200).optional(),
 }).strict();
 router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
   const update = { updated_at: new Date().toISOString() };
   if (req.body.full_name !== undefined) update.full_name = req.body.full_name;
   if (req.body.consent_ai_processing === true) update.consent_at = new Date().toISOString();
   if (req.body.consent_ai_processing === false) update.consent_at = null;
-  if (req.body.role !== undefined) update.role = req.body.role;
-  if (req.body.company_name !== undefined) update.company_name = req.body.company_name;
 
   let savedData = { id: req.user.id, full_name: req.body.full_name || req.user.user_metadata?.full_name };
   try {
-    const { data, error } = await supabaseAdmin.from("profiles").update(update).eq("id", req.user.id).select("id, full_name, consent_ai_processing, consent_at").single();
+    const { data, error } = await supabaseAdmin.from("profiles").update(update).eq("id", req.user.id).select("id, full_name, company_name, consent_ai_processing, consent_at").single();
     if (!error && data) savedData = data;
   } catch (err) {
     logger.warn({ err }, "Could not update some fields in profiles table");
@@ -113,8 +108,6 @@ router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
 
   const updatedMetadata = { ...req.user.user_metadata };
   if (req.body.full_name !== undefined) updatedMetadata.full_name = req.body.full_name;
-  if (req.body.role !== undefined) updatedMetadata.role = req.body.role;
-  if (req.body.company_name !== undefined) updatedMetadata.company_name = req.body.company_name;
 
   const { error: metadataError } = await supabaseAdmin.auth.admin.updateUserById(req.user.id, {
     user_metadata: updatedMetadata,
@@ -123,8 +116,7 @@ router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
 
   return send(res, {
     ...savedData,
-    role: updatedMetadata.role || "candidate",
-    company_name: updatedMetadata.company_name || "",
+    role: req.user.app_metadata?.role || "candidate",
   });
 }));
 
@@ -503,13 +495,19 @@ router.post("/notifications/read-all", validate(emptyBodySchema), asyncRoute(asy
 }));
 
 router.get("/account/export", asyncRoute(async (req, res) => {
-  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "skill_gap_reports", "notifications", "mock_interviews"];
+  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "skill_gap_reports", "notifications", "mock_interviews", "recruiter_access_requests", "recruiter_jobs"];
   const entries = await Promise.all(tables.map(async (table) => {
-    const ownerField = table === "profiles" ? "id" : "user_id";
+    const ownerField = table === "profiles" ? "id" : table === "recruiter_access_requests" ? "user_id" : table === "recruiter_jobs" ? "recruiter_id" : "user_id";
     const { data, error } = await supabaseAdmin.from(table).select("*").eq(ownerField, req.user.id);
     if (error) throw new AppError(500, "DATABASE_ERROR", `Could not export ${table}.`);
     return [table, data || []];
   }));
+  const { data: candidateApplications, error: candidateApplicationsError } = await supabaseAdmin
+    .from("recruiter_job_applications").select("*").eq("candidate_id", req.user.id);
+  const { data: recruiterApplications, error: recruiterApplicationsError } = await supabaseAdmin
+    .from("recruiter_job_applications").select("*").eq("recruiter_id", req.user.id);
+  if (candidateApplicationsError || recruiterApplicationsError) throw new AppError(500, "DATABASE_ERROR", "Could not export job applications.");
+  entries.push(["recruiter_job_applications", [...new Map([...(candidateApplications || []), ...(recruiterApplications || [])].map((application) => [application.id, application])).values()]]);
   return send(res, Object.fromEntries(entries));
 }));
 router.delete("/account", asyncRoute(async (req, res) => {
@@ -525,8 +523,73 @@ router.delete("/account", asyncRoute(async (req, res) => {
   return send(res, { deleted: true });
 }));
 
+router.post("/recruiter/access-requests", asyncRoute(async (req, res) => {
+  if (req.user.app_metadata?.role === "recruiter" || req.user.app_metadata?.role === "admin") {
+    throw new AppError(409, "RECRUITER_ACCESS_EXISTS", "This account already has an assigned role.");
+  }
+  const bodySchema = z.object({ company_name: z.string().trim().min(2).max(200) }).strict();
+  const body = bodySchema.parse(req.body);
+  const { data: existingRequest, error: existingError } = await supabaseAdmin.from("recruiter_access_requests")
+    .select("status").eq("user_id", req.user.id).maybeSingle();
+  if (existingError) throw new AppError(500, "DATABASE_ERROR", "Could not check your recruiter access request.");
+  if (existingRequest?.status === "approved") throw new AppError(409, "RECRUITER_ACCESS_EXISTS", "Recruiter access has already been approved for this account.");
+  const { data, error } = await supabaseAdmin.from("recruiter_access_requests").upsert({
+    user_id: req.user.id,
+    full_name: req.user.user_metadata?.full_name || req.user.email?.split("@")[0] || "Recruiter applicant",
+    email: req.user.email || "",
+    company_name: body.company_name,
+    status: "pending",
+  }, { onConflict: "user_id" }).select("id, company_name, status, created_at").single();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not submit your recruiter access request.");
+  return send(res, data, 201);
+}));
+
+router.get("/recruiter/access-request", asyncRoute(async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("recruiter_access_requests")
+    .select("company_name, status, created_at").eq("user_id", req.user.id).maybeSingle();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load your recruiter access request.");
+  return send(res, data);
+}));
+
+router.get("/admin/recruiter-requests", requireAdmin, asyncRoute(async (_req, res) => {
+  const { data, error } = await supabaseAdmin.from("recruiter_access_requests")
+    .select("*").order("created_at", { ascending: false });
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load recruiter access requests.");
+  return send(res, data || []);
+}));
+
+router.patch("/admin/recruiter-requests/:id", requireAdmin, uuidParam("id"), asyncRoute(async (req, res) => {
+  const body = z.object({ status: z.enum(["approved", "rejected"]) }).strict().parse(req.body);
+  const { data: request, error: requestError } = await supabaseAdmin.from("recruiter_access_requests")
+    .select("*").eq("id", req.params.id).maybeSingle();
+  if (requestError) throw new AppError(500, "DATABASE_ERROR", "Could not load this recruiter request.");
+  if (!request) throw new AppError(404, "NOT_FOUND", "Recruiter access request not found.");
+  if (request.status !== "pending") {
+    if (request.status === body.status) return send(res, request);
+    throw new AppError(409, "REQUEST_ALREADY_REVIEWED", "This recruiter request has already been reviewed.");
+  }
+  if (body.status === "approved") {
+    const { data: userResult, error: userError } = await supabaseAdmin.auth.admin.getUserById(request.user_id);
+    if (userError || !userResult.user) throw new AppError(500, "AUTH_USER_LOOKUP_FAILED", "Could not load the applicant account.");
+    if (userResult.user.app_metadata?.role === "admin") {
+      throw new AppError(409, "ROLE_CONFLICT", "An administrator account cannot be changed to a recruiter account.");
+    }
+    const { error: companyError } = await supabaseAdmin.from("profiles")
+      .update({ company_name: request.company_name, updated_at: new Date().toISOString() }).eq("id", request.user_id);
+    if (companyError) throw new AppError(500, "DATABASE_ERROR", "Could not save the applicant company.");
+    const { error: roleError } = await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
+      app_metadata: { ...userResult.user.app_metadata, role: "recruiter" },
+    });
+    if (roleError) throw new AppError(500, "RECRUITER_APPROVAL_FAILED", "Could not approve recruiter access.");
+  }
+  const { data, error } = await supabaseAdmin.from("recruiter_access_requests")
+    .update({ status: body.status }).eq("id", req.params.id).select("*").single();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not update this recruiter request.");
+  return send(res, data);
+}));
+
 // --- Recruiter & Outreach Endpoints ---
-router.get("/recruiter/candidates", asyncRoute(async (req, res) => {
+router.get("/recruiter/candidates", requireRecruiter, asyncRoute(async (req, res) => {
   const candidates = await searchCandidates({
     search: req.query.search || "",
     skill: req.query.skill || "",
@@ -537,19 +600,46 @@ router.get("/recruiter/candidates", asyncRoute(async (req, res) => {
   return send(res, candidates);
 }));
 
-router.get("/recruiter/candidates/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+router.get("/recruiter/candidates/:id", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
   const candidate = await getCandidateDetail(req.params.id);
   return send(res, candidate);
 }));
 
-router.post("/recruiter/inquiries", asyncRoute(async (req, res) => {
+router.post("/recruiter/inquiries", requireRecruiter, asyncRoute(async (req, res) => {
   const inquiry = await sendRecruiterInquiry(req.user, req.body);
   return send(res, inquiry, 201);
 }));
 
-router.get("/recruiter/inquiries", asyncRoute(async (req, res) => {
+router.get("/recruiter/inquiries", requireRecruiter, asyncRoute(async (req, res) => {
   const inquiries = await listRecruiterInquiries(req.user.id);
   return send(res, inquiries);
+}));
+
+router.get("/recruiter/jobs", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await listRecruiterJobs(req.user.id));
+}));
+router.post("/recruiter/jobs", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await createRecruiterJob(req.user.id, req.body), 201);
+}));
+router.get("/recruiter/jobs/:id/applications", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
+  const { data: job, error } = await supabaseAdmin.from("recruiter_jobs")
+    .select("id").eq("id", req.params.id).eq("recruiter_id", req.user.id).maybeSingle();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load this job.");
+  if (!job) throw new AppError(404, "JOB_NOT_FOUND", "Job not found.");
+  return send(res, await listRecruiterApplications(req.user.id, req.params.id));
+}));
+router.patch("/recruiter/applications/:id", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await updateRecruiterApplication(req.user.id, req.params.id, req.body));
+}));
+
+router.get("/jobs/recruiter-posts", requireCandidate, asyncRoute(async (_req, res) => {
+  return send(res, await listOpenRecruiterJobs());
+}));
+router.post("/jobs/recruiter-posts/:id/applications", requireCandidate, uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await applyToRecruiterJob(req.user.id, req.params.id, req.body), 201);
+}));
+router.get("/applications", requireCandidate, asyncRoute(async (req, res) => {
+  return send(res, await listCandidateApplications(req.user.id));
 }));
 
 // Candidate inquiries view & response
