@@ -52,10 +52,11 @@ export async function searchCandidates({
   const userIds = [...new Set((candidates || []).map((c) => c.user_id))];
   let profileMap = new Map();
   if (userIds.length > 0) {
-    const { data: profiles } = await supabaseAdmin
+    const { data: profiles, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("id, full_name, role, company_name")
       .in("id", userIds);
+    if (profileError) throw new AppError(500, "DATABASE_ERROR", "Could not load candidate account details.");
     (profiles || []).forEach((p) => profileMap.set(p.id, p));
   }
 
@@ -88,6 +89,7 @@ export async function searchCandidates({
       };
     })
     .filter((candidate) => {
+      if (profileMap.get(candidate.user_id)?.role !== "candidate") return false;
       if (normalizedEducation && !candidate.highest_education.toLowerCase().includes(normalizedEducation)) {
         return false;
       }
@@ -117,11 +119,16 @@ export async function getCandidateDetail(candidateId) {
     throw new AppError(404, "NOT_FOUND", "Candidate profile not found.");
   }
 
-  const { data: profile } = await supabaseAdmin
+  const { data: profile, error: profileError } = await supabaseAdmin
     .from("profiles")
-    .select("full_name, role, company_name")
+    .select("full_name, role")
     .eq("id", candidate.user_id)
     .maybeSingle();
+
+  if (profileError) throw new AppError(500, "DATABASE_ERROR", "Could not load candidate account details.");
+  if (profile?.role !== "candidate") {
+    throw new AppError(404, "NOT_FOUND", "Candidate profile not found.");
+  }
 
   return {
     ...candidate,
@@ -335,4 +342,3 @@ export async function respondToInquiry(candidateUserId, inquiryId, input) {
 
   return updated;
 }
-

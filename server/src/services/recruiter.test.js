@@ -52,6 +52,17 @@ describe("recruiter service", () => {
         projects: [{ title: "Model 1" }],
         created_at: "2026-01-02",
       },
+      {
+        id: "cand-3",
+        user_id: "user-3",
+        summary: "Recruiter profile with React experience",
+        skills: [{ name: "React", level: "strong", evidence_strength: "high" }],
+        highest_education: "Bachelor of Science",
+        total_experience_months: 48,
+        specializations: ["Hiring"],
+        projects: [],
+        created_at: "2026-01-03",
+      },
     ];
 
     const queryMock = {
@@ -68,8 +79,9 @@ describe("recruiter service", () => {
           select: vi.fn().mockReturnThis(),
           in: vi.fn().mockResolvedValue({
             data: [
-              { id: "user-1", full_name: "Alice Dev" },
-              { id: "user-2", full_name: "Bob Data" },
+              { id: "user-1", full_name: "Alice Dev", role: "candidate" },
+              { id: "user-2", full_name: "Bob Data", role: "candidate" },
+              { id: "user-3", full_name: "Recruiter", role: "recruiter" },
             ],
           }),
         };
@@ -165,7 +177,7 @@ describe("recruiter service", () => {
           select: vi.fn().mockReturnThis(),
           eq: vi.fn().mockReturnThis(),
           in: vi.fn().mockReturnThis(),
-          maybeSingle: vi.fn().mockResolvedValue({ data: { full_name: "John Doe" }, error: null }),
+          maybeSingle: vi.fn().mockResolvedValue({ data: { full_name: "John Doe", role: "candidate" }, error: null }),
         };
       }
       if (table === "recruiter_inquiries") {

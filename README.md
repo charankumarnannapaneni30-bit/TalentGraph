@@ -18,7 +18,7 @@ TalentGraph is an advisory career-intelligence application for organizing candid
    ```
 
 2. Copy `server/.env.example` to `server/.env` and `client/.env.example` to `client/.env`. Fill in the Supabase URL and public anon key in both files. Set the Supabase service-role key, Gemini API key, and optional Resend email settings only in `server/.env`. The API loads `server/.env` on startup.
-3. Run the SQL migrations in `supabase/migrations` in numeric order. If you already applied the earlier migrations, apply the newer numbered migrations only, including `007_recruiter_access_and_applications.sql`.
+3. Run the SQL migrations in `supabase/migrations` in numeric order. If you already applied the earlier migrations, apply the newer numbered migrations only, including `007_recruiter_access_and_applications.sql` and `008_recruiter_workspace.sql`.
 4. Start the Vite client with `npm run dev`. Start the API separately with `npm run dev --workspace server`.
 5. Build and test with `npm run build` and `npm test`.
 
@@ -43,11 +43,15 @@ In Supabase Auth settings, configure the local client URL (`http://localhost:517
 update auth.users
 set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"admin"}'::jsonb
 where email = 'admin@example.com';
+
+update public.profiles
+set role = 'admin'
+where id = (select id from auth.users where email = 'admin@example.com');
 ```
 
-Sign out and back in so the JWT includes the new app-metadata role. Do not assign this role through user-editable metadata.
+Use single quotes around the account email, then sign out and back in so the JWT includes the new app-metadata role. Do not assign this role through user-editable metadata.
 
-Candidate and recruiter accounts use separate sign-in modes. A recruiter registration submits a company for administrator review; it does not grant recruiter permissions. Review requests at `/app/admin/recruiters`. Approval assigns the recruiter role in Supabase Auth app metadata, which the API checks on every recruiter endpoint. Recruiters can post jobs and review applications to their own postings; candidates can apply to those jobs from Job matches. Never grant recruiter access by changing `user_metadata` or a client-side profile field.
+Candidate and recruiter accounts use separate sign-in modes. A recruiter registration submits a company for administrator review; it does not grant recruiter permissions. Pending and rejected requests are shown on the recruiter-access page, where rejected applicants can resubmit. Review requests at `/app/admin/recruiters`. Approval assigns the recruiter role in Supabase Auth app metadata and synchronizes the profile role; the API checks trusted app metadata on every recruiter endpoint. Candidates and recruiters have separate protected workspaces. Recruiters can manage company details and job listings, review applications, search and shortlist candidates, schedule interviews, and manage inquiries. Candidates can apply to open recruiter jobs from Job matches. Never grant recruiter access by changing `user_metadata` or a client-side profile field.
 
 During development, the API accepts either `localhost` or `127.0.0.1` for the configured client host and port. In production, only `CLIENT_ORIGIN` is allowed.
 

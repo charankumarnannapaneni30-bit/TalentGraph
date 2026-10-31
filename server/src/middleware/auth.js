@@ -30,7 +30,7 @@ export function requireRecruiter(req, _res, next) {
 }
 
 export function requireCandidate(req, _res, next) {
-  if (req.user?.app_metadata?.role === "recruiter" || req.user?.app_metadata?.role === "admin") {
+  if (req.user?.app_metadata?.role === "recruiter") {
     return next(new AppError(403, "CANDIDATE_ACCESS_REQUIRED", "A candidate account is required."));
   }
   return next();

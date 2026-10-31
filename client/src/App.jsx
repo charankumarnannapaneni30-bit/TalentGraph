@@ -5,12 +5,13 @@ import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
-  Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Building, Check, ChevronDown, ChevronRight, CircleHelp,
+  Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Building, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp,
   FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, Mail, MessageSquareText,
-  Menu, Mic, MicOff, Search, Send, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserRound, Users, Video, Volume2, X,
+  Menu, Mic, MicOff, Search, Send, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserCheck, UserRound, Users, Video, Volume2, X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
 import { api, apiJson } from "./lib/api";
+import { notifyFeedback } from "./lib/feedback";
 import { loginSchema, registerSchema } from "./lib/schemas";
 
 const candidateMenu = [
@@ -26,16 +27,28 @@ const candidateMenu = [
 ];
 
 const recruiterMenu = [
-  ["Talent graph", "/app/recruiter/candidates", Users],
-  ["Outreach & Inquiries", "/app/recruiter/inquiries", Send],
-  ["Post a job", "/app/recruiter/jobs", BriefcaseBusiness],
+  ["Recruiter Overview", "/app/recruiter/dashboard", LayoutDashboard],
+  ["Company Profile", "/app/recruiter/company", Building],
+  ["Post & Manage Jobs", "/app/recruiter/jobs", BriefcaseBusiness],
+  ["Candidate Applications", "/app/recruiter/applications", UserCheck],
+  ["Search Candidates", "/app/recruiter/candidates", Users],
+  ["Shortlisted Candidates", "/app/recruiter/shortlisted", UserRound],
+  ["Interview Management", "/app/recruiter/interviews", CalendarDays],
+  ["Recruiter Inquiries", "/app/recruiter/inquiries", Send],
+  ["Settings", "/app/recruiter/settings", Settings],
+];
+
+const adminMenu = [
+  ["Admin overview", "/app/admin/dashboard", LayoutDashboard],
+  ["Recruiter approvals", "/app/admin/recruiters", Users],
+  ["Job administration", "/app/admin/jobs", BriefcaseBusiness],
 ];
 const disclaimer = "AI-generated insights are advisory and based only on the information you provided. They are not hiring decisions. Verify details with the employer.";
 
 function messageTone(message) {
   const text = String(message || "").toLowerCase();
-  if (/\b(could not|couldn't|failed|failure|error|unavailable|blocked|denied|too large|no audio|no microphone|not supported|not found|not configured|timed out|cannot|can't|required|invalid|exceeded|busy|already finished)\b/.test(text)) return "negative";
-  if (/\b(received|ready|saved|updated|created|completed|enabled|withdrawn|deleted|marked as read|successfully|queued|generated)\b/.test(text)) return "positive";
+  if (/\b(could not|couldn't|couldn’t|failed|failure|error|unavailable|blocked|denied|too large|no audio|no microphone|not supported|not found|not configured|timed out|cannot|can't|required|invalid|exceeded|busy|already finished|not approved)\b/.test(text)) return "negative";
+  if (/\b(received|ready|saved|updated|created|completed|enabled|withdrawn|deleted|marked as read|successfully|queued|generated|approved|rejected|shortlisted|scheduled|posted|accepted|connected|sent|exported|restored|reopened|closed|declined|uploaded|analyzed|added|removed|signed in|submitted|check your email)\b/.test(text)) return "positive";
   return "neutral";
 }
 
@@ -105,12 +118,14 @@ function AuthPage({ mode }) {
         const { error } = await supabase.auth.resetPasswordForEmail(values.email, { redirectTo: `${window.location.origin}/reset-password` });
         if (error) throw error;
         setMessage("If an account exists for that email, a password reset link has been sent.");
+        notifyFeedback("success", "Password reset email sent.");
         return;
       }
       if (mode === "reset") {
         const { error } = await supabase.auth.updateUser({ password: values.password });
         if (error) throw error;
         setMessage("Your password has been updated. You can now sign in.");
+        notifyFeedback("success", "Password updated successfully.");
         navigate("/login");
         return;
       }
@@ -118,7 +133,11 @@ function AuthPage({ mode }) {
         ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.full_name, consent_ai_processing: true, account_type: accountType, ...(accountType === "recruiter" ? { company_name: values.company_name } : {}) } } })
         : await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
       if (result.error) throw result.error;
-      if (register && !result.data.session) { setMessage(`Check your email to confirm your account, then sign in as ${accountType === "recruiter" ? "Recruiter" : "Candidate"}.`); return; }
+      if (register && !result.data.session) {
+        setMessage(`Check your email to confirm your account, then sign in as ${accountType === "recruiter" ? "Recruiter" : "Candidate"}.`);
+        notifyFeedback("success", "Account created. Check your email to confirm it.");
+        return;
+      }
       if (register) {
         await apiJson("/me", "PATCH", { full_name: values.full_name, consent_ai_processing: true });
         if (accountType === "recruiter") {
@@ -129,15 +148,27 @@ function AuthPage({ mode }) {
         navigate("/app/dashboard");
         return;
       }
-      const role = result.data.user?.app_metadata?.role || "candidate";
+      const account = await api("/me");
+      const role = account?.role || "candidate";
       if (accountType === "recruiter") {
         if (role === "recruiter") {
-          navigate("/app/recruiter/jobs");
+          notifyFeedback("success", "Signed in successfully.");
+          navigate("/app/recruiter/dashboard");
           return;
         }
-        const companyName = result.data.user?.user_metadata?.company_name;
-        if (result.data.user?.user_metadata?.account_type === "recruiter" && companyName) {
-          await apiJson("/recruiter/access-requests", "POST", { company_name: companyName });
+        const accessRequest = await api("/recruiter/access-request");
+        if (accessRequest) {
+          notifyFeedback("success", "Signed in successfully.");
+          navigate("/app/recruiter-access");
+          return;
+        }
+        if (result.data.user?.user_metadata?.account_type === "recruiter") {
+          const companyName = result.data.user?.user_metadata?.company_name;
+          if (companyName) {
+            await apiJson("/recruiter/access-requests", "POST", { company_name: companyName });
+            navigate("/app/recruiter-access");
+            return;
+          }
           navigate("/app/recruiter-access");
           return;
         }
@@ -148,15 +179,17 @@ function AuthPage({ mode }) {
         await supabase.auth.signOut();
         throw new Error("This is a recruiter account. Choose Recruiter sign in to continue.");
       }
+      notifyFeedback("success", "Signed in successfully.");
       navigate("/app/dashboard");
     } catch (error) {
       setMessage(error.message || "Authentication failed. Please try again.");
+      notifyFeedback("error", error.message || "Authentication failed. Please try again.");
     }
   };
   const heading = register ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "reset" ? "Choose a new password" : "Welcome back";
   const subheading = register ? accountType === "recruiter" ? "Request a verified recruiter account for your company." : "Start building a clearer picture of your skills." : mode === "forgot" ? "We’ll send you a secure password reset link." : mode === "reset" ? "Choose a new password for your account." : "Sign in to continue exploring your career.";
   return <main className="auth-page"><section className="auth-card page-enter"><Link to="/" className="back-link">← Back to home</Link><div className="auth-heading"><span className="auth-icon"><Sparkles size={20} /></span><h1>{heading}</h1><p>{subheading}</p></div>
-    {message && <div className="form-message" role="alert">{message}</div>}
+    {message && <div className={`form-message form-message-${messageTone(message)}`} role="alert">{message}</div>}
     <form onSubmit={handleSubmit(onSubmit)} className="auth-form">
       {register
         ? <label className="field"><span>Account type</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="candidate">Candidate</option><option value="recruiter">Recruiter (requires approval)</option></select></label>
@@ -175,6 +208,20 @@ function AuthPage({ mode }) {
   </section></main>;
 }
 
+function SignedInRedirect({ session }) {
+  const { data: account, isLoading, error, refetch } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  if (isLoading) return <LoadingState label="Checking your account…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  if (account?.role === "admin") return <Navigate to="/app/admin/dashboard" replace />;
+  if (account?.role === "recruiter") return <Navigate to="/app/recruiter/dashboard" replace />;
+  if (account?.recruiter_access_request || session?.user?.user_metadata?.account_type === "recruiter") return <Navigate to="/app/recruiter-access" replace />;
+  return <Navigate to="/app/dashboard" replace />;
+}
+
 function Protected({ session }) {
   return session ? <Outlet /> : <Navigate to="/login" replace />;
 }
@@ -186,11 +233,88 @@ function RecruiterRoute({ session }) {
     enabled: Boolean(session?.user?.id),
   });
   if (isLoading) return <LoadingState label="Checking recruiter access…" />;
-  return data?.role === "recruiter" ? <Outlet /> : <Navigate to="/app/dashboard" replace />;
+  return data?.role === "recruiter" ? <Outlet /> : data?.recruiter_access_request || data?.user?.user_metadata?.account_type === "recruiter"
+    ? <Navigate to="/app/recruiter-access" replace />
+    : <Navigate to="/app/dashboard" replace />;
+}
+
+function CandidateRoute({ session }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  if (isLoading) return <LoadingState label="Checking account access…" />;
+  if (data?.role === "admin") return <Navigate to="/app/admin/dashboard" replace />;
+  if (data?.role === "recruiter") return <Navigate to="/app/recruiter/dashboard" replace />;
+  if (data?.recruiter_access_request || data?.user?.user_metadata?.account_type === "recruiter") return <Navigate to="/app/recruiter-access" replace />;
+  return <Outlet />;
 }
 
 function AdminRoute({ session, children }) {
-  return session?.user?.app_metadata?.role === "admin" ? children : <Navigate to="/app/dashboard" replace />;
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  if (isLoading) return <LoadingState label="Checking administrator access…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  return data?.role === "admin" ? children : <Navigate to="/app/dashboard" replace />;
+}
+
+function RecruiterWorkspace({ session, onSignOut }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  const { data: account } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  const name = session?.user?.user_metadata?.full_name || "Recruiter";
+  const email = session?.user?.email || "";
+  const initial = (name[0] || email[0] || "R").toUpperCase();
+  const current = recruiterMenu.find((item) => location.pathname === item[1] || location.pathname.startsWith(`${item[1]}/`))?.[0] || "Recruiter Workspace";
+  return <div className="app-shell recruiter-shell">
+    {sidebarOpen && <button className="mobile-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <div className="sidebar-brand"><Brand /></div>
+      <div className="workspace-label">RECRUITER WORKSPACE</div>
+      <nav className="side-nav">{recruiterMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname === path || location.pathname.startsWith(`${path}/`) ? "active" : ""}><Icon size={18} /><span>{label}</span></Link>)}</nav>
+      <div className="sidebar-bottom">
+        <button onClick={onSignOut}><LogOut size={18} />Sign out</button>
+        <div className="sidebar-user"><span>{initial}</span><div><b>{name}</b><small><span className="role-badge role-badge-recruiter">{account?.company_name || "Approved recruiter"}</span></small></div></div>
+      </div>
+    </aside>
+    <div className="main-column">
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="breadcrumb">Recruiter workspace <ChevronRight size={14} /> <b>{current}</b></div><div className="topbar-actions"><span className="company-line">{account?.company_name || "Company profile not set"}</span><span className="avatar">{initial}</span></div></header>
+      <main className="app-content"><Outlet /></main>
+    </div>
+  </div>;
+}
+
+function AdminWorkspace({ session, onSignOut }) {
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const location = useLocation();
+  const current = adminMenu.find((item) => location.pathname === item[1])?.[0] || "Administrator workspace";
+  const name = session?.user?.user_metadata?.full_name || "Administrator";
+  const email = session?.user?.email || "";
+  const initial = (name[0] || email[0] || "A").toUpperCase();
+  return <div className="app-shell admin-shell">
+    {sidebarOpen && <button className="mobile-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
+    <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}>
+      <div className="sidebar-brand"><Brand /></div>
+      <div className="workspace-label">ADMINISTRATOR WORKSPACE</div>
+      <nav className="side-nav">{adminMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname === path ? "active" : ""}><Icon size={18} /><span>{label}</span></Link>)}</nav>
+      <div className="sidebar-bottom">
+        <button onClick={onSignOut}><LogOut size={18} />Sign out</button>
+        <div className="sidebar-user"><span>{initial}</span><div><b>{name}</b><small>Administrator</small></div></div>
+      </div>
+    </aside>
+    <div className="main-column">
+      <header className="topbar"><button className="mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="breadcrumb">Administrator workspace <ChevronRight size={14} /> <b>{current}</b></div><div className="topbar-actions"><span className="company-line">{email}</span><span className="avatar">{initial}</span></div></header>
+      <main className="app-content"><Outlet /></main>
+    </div>
+  </div>;
 }
 
 function Shell({ session, onSignOut }) {
@@ -200,23 +324,17 @@ function Shell({ session, onSignOut }) {
   const accountMenuRef = useRef(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [latestNotifications, setLatestNotifications] = useState([]);
-  const [userRole, setUserRole] = useState("candidate");
   const location = useLocation();
-
-  useEffect(() => {
-    let active = true;
-    setUserRole("candidate");
-    api("/me").then((me) => {
-      if (active && me?.role) setUserRole(me.role);
-    }).catch((error) => console.error("Could not load account role", error.message));
-    return () => { active = false; };
-  }, [session?.user?.id]);
-
+  const { data: account, isLoading: isRoleLoading, error: roleError } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
+  const userRole = account?.role || "candidate";
   const isRecruiter = userRole === "recruiter";
+  const isAdmin = userRole === "admin";
   const baseMenu = isRecruiter ? recruiterMenu : candidateMenu;
-  const visibleMenu = session?.user?.app_metadata?.role === "admin"
-    ? [...baseMenu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness], ["Recruiter approvals", "/app/admin/recruiters", Users]]
-    : baseMenu;
+  const visibleMenu = isAdmin ? adminMenu : baseMenu;
   const current = visibleMenu.find((item) => location.pathname.startsWith(item[1]))?.[0] || "Workspace";
   const accountName = session?.user?.user_metadata?.full_name || "Your workspace";
   const accountEmail = session?.user?.email || "";
@@ -237,6 +355,7 @@ function Shell({ session, onSignOut }) {
     };
   }, [accountOpen]);
   useEffect(() => {
+    if (isRoleLoading || roleError || isRecruiter) return undefined;
     let active = true;
     const refreshCount = () => api("/notifications").then((items) => {
       if (active) {
@@ -254,7 +373,7 @@ function Shell({ session, onSignOut }) {
         if (active) setUnreadCount((count) => count + 1);
       }).subscribe();
     return () => { active = false; window.removeEventListener("talentgraph-notifications-updated", refreshCount); supabase.removeChannel(channel); };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, isRoleLoading, isRecruiter, roleError]);
   const markLatestRead = async (item) => {
     try {
       await api(`/notifications/${item.id}/read`, { method: "PATCH" });
@@ -264,6 +383,10 @@ function Shell({ session, onSignOut }) {
       console.error("Could not update notification", error.message);
     }
   };
+  if (isRoleLoading) return <LoadingState label="Loading your workspace…" />;
+  if (roleError) return <main className="app-content"><LoadingError error={roleError} onRetry={() => window.location.reload()} /></main>;
+  if (isRecruiter) return <RecruiterWorkspace session={session} onSignOut={onSignOut} />;
+  if (isAdmin) return <AdminWorkspace session={session} onSignOut={onSignOut} />;
   return <div className="app-shell">
     {sidebarOpen && <button className="mobile-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}><div className="sidebar-brand"><Brand /></div><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{visibleMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname.startsWith(path) ? "active" : ""}><Icon size={18} /><span>{label}</span>{label === "Job matches" && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><Link to="/app/preferences"><Settings size={18} />Preferences</Link><Link to="/app/settings"><ShieldCheck size={18} />Settings & privacy</Link><button onClick={onSignOut}><LogOut size={18} />Sign out</button><div className="sidebar-user"><span>{accountInitial}</span><div><b>{accountName}</b><small><span className={`role-badge role-badge-${userRole}`}>{isRecruiter ? "Recruiter" : "Candidate"}</span></small></div></div></div></aside>
@@ -301,12 +424,26 @@ function PageTitle({ eyebrow, title, description, action }) {
 }
 
 function RecruiterAccessPage({ session }) {
+  const { data: account, isLoading: roleLoading, error: roleError, refetch } = useQuery({
+    queryKey: ["account-role", session?.user?.id],
+    queryFn: () => api("/me"),
+    enabled: Boolean(session?.user?.id),
+  });
   const [request, setRequest] = useState(undefined);
+  const [loading, setLoading] = useState(true);
   const [companyName, setCompanyName] = useState(session?.user?.user_metadata?.company_name || "");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
+  const [requestError, setRequestError] = useState("");
   const load = useCallback(async () => {
-    try { setRequest(await api("/recruiter/access-request")); } catch (error) { setNotice(error.message); }
+    try {
+      setRequestError("");
+      setRequest(await api("/recruiter/access-request"));
+    } catch (error) {
+      setRequestError(error.message);
+    } finally {
+      setLoading(false);
+    }
   }, []);
   useEffect(() => { load(); }, [load]);
   const submit = async (event) => {
@@ -321,12 +458,19 @@ function RecruiterAccessPage({ session }) {
       setBusy(false);
     }
   };
+  if (roleLoading) return <LoadingState label="Checking recruiter access…" />;
+  if (roleError) return <LoadingError error={roleError} onRetry={refetch} />;
+  if (account?.role === "recruiter") return <Navigate to="/app/recruiter/dashboard" replace />;
   return <div className="page-enter">
     <PageTitle eyebrow="RECRUITER ACCOUNT" title="Recruiter access" description="Recruiter access is approved by an administrator. A candidate account cannot open recruiter tools or candidate data." />
     {notice && <div className="form-message form-message-negative" role="alert">{notice}</div>}
-    {request?.status === "pending" || request?.status === "approved"
-      ? <section className="content-card"><h3>{request.status === "approved" ? "Recruiter access approved" : "Request under review"}</h3><p>Company: <b>{request.company_name}</b></p><p>{request.status === "approved" ? "Sign out and sign in with Recruiter selected to refresh your access." : "Your recruiter account will be enabled after an administrator reviews your company details."}</p></section>
-      : <form className="content-card admin-form" onSubmit={submit}><h3>Request a recruiter account</h3><p>Provide your company name. An administrator must approve your account before recruiter pages or candidate applications are available.</p><label className="field"><span>Company name</span><input required minLength="2" maxLength="200" value={companyName} onChange={(event) => setCompanyName(event.target.value)} /></label><Button type="submit" disabled={busy || companyName.trim().length < 2}>{busy ? "Submitting…" : "Submit for approval"} <ArrowRight size={16} /></Button></form>}
+    {loading ? <LoadingState label="Checking request status…" /> : requestError
+      ? <section className="state-card"><CircleHelp size={24} /><b>Could not check your recruiter request</b><p>{requestError}</p><Button variant="secondary" onClick={load}>Try again</Button></section>
+      : request?.status === "pending"
+      ? <section className="content-card"><h3>Recruiter request pending</h3><p>Company: <b>{request.company_name}</b></p><p>An administrator is reviewing your request. Recruiter tools will be available after approval.</p><div className="card-actions"><Button variant="secondary" onClick={load}>Refresh request status</Button><Button variant="secondary" onClick={async () => { const { error } = await supabase.auth.signOut(); if (error) setNotice(error.message); else window.location.assign("/"); }}>Sign out</Button></div></section>
+      : request?.status === "approved"
+        ? <section className="content-card"><h3>Recruiter access approved</h3><p>Company: <b>{request.company_name}</b></p><p>Your recruiter access is approved. Sign out and sign back in to refresh your approved recruiter session.</p><Button onClick={async () => { const { error } = await supabase.auth.signOut(); if (error) setNotice(error.message); else window.location.assign("/login"); }}>Sign out and sign in</Button></section>
+        : <form className="content-card admin-form" onSubmit={submit}><h3>{request?.status === "rejected" ? "Recruiter request not approved" : "Request a recruiter account"}</h3><p>{request?.status === "rejected" ? "Your request was not approved. Review the company information and submit an updated request for administrator review." : "Provide your company name. An administrator must approve your account before recruiter pages or candidate applications are available."}</p><label className="field"><span>Company name</span><input required minLength="2" maxLength="200" value={companyName} onChange={(event) => setCompanyName(event.target.value)} /></label><div className="card-actions"><Button type="submit" disabled={busy || companyName.trim().length < 2}>{busy ? "Submitting…" : request?.status === "rejected" ? "Resubmit request" : "Submit for approval"} <ArrowRight size={16} /></Button><Button type="button" variant="secondary" onClick={async () => { await supabase.auth.signOut(); window.location.assign("/login"); }}>Sign out</Button></div></form>}
   </div>;
 }
 
@@ -965,7 +1109,7 @@ function RecruiterJobBoard() {
   return <section className="content-card" style={{ marginBottom: "20px" }}>
     <h3>Jobs posted by recruiters</h3>
     <p>Apply here to send a request directly to the recruiter. Your application is visible only to the recruiter who posted that job.</p>
-    {notice && <div className="form-message" role="status">{notice}</div>}
+    {notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
     {jobs.length === 0 ? <p>No recruiter-posted jobs are open right now.</p> : <div className="resource-grid">{jobs.map((job) => {
       const application = applied.get(job.id);
       return <article className="content-card resource-card" key={job.id}>
@@ -1289,6 +1433,178 @@ function AdminRecruiterRequestsPage() {
   </div>;
 }
 
+function AdminDashboard() {
+  const { data: requests = [], isLoading, error, refetch } = useQuery({
+    queryKey: ["admin-recruiter-requests"],
+    queryFn: () => api("/admin/recruiter-requests"),
+  });
+  if (isLoading) return <LoadingState label="Loading administrator overview…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  const pendingCount = requests.filter((request) => request.status === "pending").length;
+  const reviewedCount = requests.filter((request) => request.status !== "pending").length;
+  return <div className="page-enter">
+    <PageTitle eyebrow="ADMINISTRATOR WORKSPACE" title="Admin overview" description="Manage recruiter access requests and job sources from your administrator workspace." />
+    <div className="metric-grid">
+      <Metric icon={Users} label="Pending recruiter requests" value={pendingCount} note="Need your review" tone="orange" href="/app/admin/recruiters" />
+      <Metric icon={ShieldCheck} label="Reviewed requests" value={reviewedCount} note="Approved or rejected" tone="green" href="/app/admin/recruiters" />
+      <Metric icon={BriefcaseBusiness} label="Job administration" value="Manage" note="Sources and vacancies" tone="blue" href="/app/admin/jobs" />
+    </div>
+    <section className="content-card" style={{ marginTop: "20px" }}>
+      <div className="card-heading"><div><h3>Recruiter access requests</h3><p>Review company details and approve or reject recruiter accounts.</p></div></div>
+      <Link className="button button-primary" to="/app/admin/recruiters">Open recruiter approvals <ArrowRight size={15} /></Link>
+      {pendingCount > 0 && <p style={{ marginTop: "14px" }}>{pendingCount} request{pendingCount === 1 ? "" : "s"} waiting for review.</p>}
+    </section>
+  </div>;
+}
+
+function RecruiterOverviewPage() {
+  const { data: jobs, isLoading: jobsLoading, error: jobsError, refetch: refetchJobs } = useQuery({ queryKey: ["recruiter-jobs"], queryFn: () => api("/recruiter/jobs") });
+  const { data: applications, isLoading: applicationsLoading, error: applicationsError, refetch: refetchApplications } = useQuery({ queryKey: ["recruiter-applications"], queryFn: () => api("/recruiter/applications") });
+  const { data: interviews, isLoading: interviewsLoading, error: interviewsError, refetch: refetchInterviews } = useQuery({ queryKey: ["recruiter-interviews"], queryFn: () => api("/recruiter/interviews") });
+  if (jobsError) return <LoadingError error={jobsError} onRetry={refetchJobs} />;
+  if (applicationsError) return <LoadingError error={applicationsError} onRetry={refetchApplications} />;
+  if (interviewsError) return <LoadingError error={interviewsError} onRetry={refetchInterviews} />;
+  if (jobsLoading || applicationsLoading || interviewsLoading) return <LoadingState label="Loading recruiter overview…" />;
+  const pending = (applications || []).filter((application) => application.status === "pending").length;
+  const upcoming = (interviews || []).filter((interview) => interview.status === "scheduled" && Date.parse(interview.scheduled_at) >= Date.now()).length;
+  return <div className="page-enter">
+    <PageTitle eyebrow="RECRUITER WORKSPACE" title="Recruiter Overview" description="A snapshot of your openings, candidate applications, and upcoming interviews." />
+    <div className="metric-grid">
+      <Metric icon={BriefcaseBusiness} label="Open jobs" value={(jobs || []).filter((job) => job.status === "open").length} note="Your active listings" tone="blue" href="/app/recruiter/jobs" />
+      <Metric icon={Users} label="Applications" value={(applications || []).length} note="Across all job listings" tone="purple" href="/app/recruiter/applications" />
+      <Metric icon={Mail} label="Needs review" value={pending} note="Pending applications" tone="orange" href="/app/recruiter/applications" />
+      <Metric icon={CalendarDays} label="Upcoming interviews" value={upcoming} note="Scheduled with candidates" tone="green" href="/app/recruiter/interviews" />
+    </div>
+    <section className="content-card" style={{ marginTop: "20px" }}><div className="card-heading"><div><h3>Recruiter workspace</h3><p>Manage your company hiring workflow in one place.</p></div></div><div className="card-actions"><Link className="button button-primary" to="/app/recruiter/jobs">Post a job <ArrowRight size={15} /></Link><Link className="button button-secondary" to="/app/recruiter/candidates">Search candidates <Users size={15} /></Link><Link className="button button-secondary" to="/app/recruiter/applications">Review applications <UserCheck size={15} /></Link></div></section>
+  </div>;
+}
+
+function RecruiterCompanyPage() {
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ["recruiter-company"], queryFn: () => api("/recruiter/company") });
+  if (isLoading) return <LoadingState label="Loading company profile…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  const save = async (event) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    try {
+      setBusy(true);
+      await apiJson("/recruiter/company", "PATCH", {
+        company_name: form.get("company_name"),
+        contact_email: form.get("contact_email") || null,
+        contact_phone: form.get("contact_phone") || null,
+      });
+      setNotice("Company profile saved.");
+      await refetch();
+    } catch (failure) {
+      setNotice(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <div className="page-enter"><PageTitle eyebrow="COMPANY SETTINGS" title="Company Profile" description="Keep the company identity and contact information associated with recruiter job postings up to date." />{notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}<form className="content-card admin-form" onSubmit={save}><label className="field"><span>Company name</span><input name="company_name" required minLength="2" maxLength="200" defaultValue={data.company_name || ""} /></label><label className="field"><span>Contact email</span><input name="contact_email" type="email" defaultValue={data.contact_email || ""} /></label><label className="field"><span>Contact phone</span><input name="contact_phone" maxLength="40" defaultValue={data.contact_phone || ""} /></label><Button type="submit" disabled={busy}>{busy ? "Saving…" : "Save company profile"} <Check size={15} /></Button></form></div>;
+}
+
+function RecruiterApplicationsPage() {
+  const [notice, setNotice] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [interviewTimes, setInterviewTimes] = useState({});
+  const { data: applications = [], isLoading, error, refetch } = useQuery({ queryKey: ["recruiter-applications"], queryFn: () => api("/recruiter/applications") });
+  const { data: interviews = [], isLoading: interviewsLoading, error: interviewsError, refetch: refetchInterviews } = useQuery({ queryKey: ["recruiter-interviews"], queryFn: () => api("/recruiter/interviews") });
+  if (isLoading || interviewsLoading) return <LoadingState label="Loading candidate applications…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  if (interviewsError) return <LoadingError error={interviewsError} onRetry={refetchInterviews} />;
+  const scheduledApplicationIds = new Set(interviews.filter((interview) => interview.status === "scheduled").map((interview) => interview.application_id));
+  const update = async (application, status) => {
+    try {
+      setBusyId(application.id);
+      await apiJson(`/recruiter/applications/${application.id}`, "PATCH", { status });
+      setNotice("Application status updated.");
+      await refetch();
+    } catch (failure) {
+      setNotice(failure.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+  const schedule = async (application) => {
+    const time = interviewTimes[application.id];
+    if (!time) { setNotice("Choose a date and time before scheduling."); return; }
+    try {
+      setBusyId(application.id);
+      const result = await apiJson("/recruiter/interviews", "POST", {
+        application_id: application.id,
+        scheduled_at: new Date(time).toISOString(),
+      });
+      setNotice(result.notification_warning
+        ? "Interview scheduled, but the candidate notification could not be sent."
+        : "Interview scheduled and candidate notified.");
+      setInterviewTimes((current) => ({ ...current, [application.id]: "" }));
+      await refetchInterviews();
+    } catch (failure) {
+      setNotice(failure.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+  return <div className="page-enter">
+    <PageTitle eyebrow="CANDIDATE PIPELINE" title="Candidate Applications" description="Review requests for your job listings, update each candidate’s status, and schedule interviews." />
+    {notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
+    {applications.length === 0 ? <div className="state-card"><UserCheck size={26} /><b>No candidate applications yet</b><p>Applications submitted for your active job listings will appear here.</p><Link className="button button-primary" to="/app/recruiter/jobs">Manage job listings</Link></div> : <div className="resource-list">{applications.map((application) => <article className="inquiry-card" key={application.id}>
+      <div className="inquiry-header"><div><h4>{application.candidate_name}</h4><small>{application.job_title} · Applied {new Date(application.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${application.status}`}>{application.status}</span></div>
+      <p>{application.message}</p>
+      {["pending", "reviewing"].includes(application.status) && <div className="card-actions">{application.status === "pending" && <Button variant="secondary" disabled={busyId === application.id} onClick={() => update(application, "reviewing")}>Mark reviewing</Button>}<Button disabled={busyId === application.id} onClick={() => update(application, "accepted")}>Accept</Button><Button variant="danger" disabled={busyId === application.id} onClick={() => update(application, "declined")}>Decline</Button></div>}
+      {scheduledApplicationIds.has(application.id)
+        ? <p><Link className="text-link" to="/app/recruiter/interviews">Interview already scheduled · View schedule <ArrowRight size={14} /></Link></p>
+        : ["reviewing", "accepted"].includes(application.status) && <div className="admin-form"><label className="field"><span>Schedule interview</span><input type="datetime-local" min={new Date(Date.now() - new Date().getTimezoneOffset() * 60_000 + 60_000).toISOString().slice(0, 16)} value={interviewTimes[application.id] || ""} onChange={(event) => setInterviewTimes((current) => ({ ...current, [application.id]: event.target.value }))} /></label><Button variant="secondary" disabled={busyId === application.id} onClick={() => schedule(application)}>Schedule interview <CalendarDays size={15} /></Button></div>}
+    </article>)}</div>}
+  </div>;
+}
+
+function RecruiterShortlistPage() {
+  const { data: candidates = [], isLoading, error, refetch } = useQuery({ queryKey: ["recruiter-shortlist"], queryFn: () => api("/recruiter/shortlisted") });
+  const [notice, setNotice] = useState("");
+  if (isLoading) return <LoadingState label="Loading shortlisted candidates…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  const remove = async (candidate) => {
+    try { await api(`/recruiter/shortlisted/${candidate.id}`, { method: "DELETE" }); await refetch(); }
+    catch (failure) { setNotice(failure.message); }
+  };
+  return <div className="page-enter"><PageTitle eyebrow="TALENT PIPELINE" title="Shortlisted Candidates" description="Keep track of candidate profiles you may want to revisit." />{notice && <div className="form-message" role="status">{notice}</div>}{candidates.length === 0 ? <div className="state-card"><UserRound size={26} /><b>Your shortlist is empty</b><p>Add candidates from Search Candidates to save them here.</p><Link className="button button-primary" to="/app/recruiter/candidates">Search candidates</Link></div> : <div className="resource-grid">{candidates.map((candidate) => <article className="content-card resource-card" key={candidate.id}><h3>{candidate.full_name}</h3><small className="company-line">{candidate.highest_education} · {candidate.total_experience_months || 0} months experience</small><p>{candidate.summary}</p><div className="card-actions"><Button variant="secondary" onClick={() => remove(candidate)}>Remove from shortlist</Button></div></article>)}</div>}</div>;
+}
+
+function RecruiterInterviewsPage() {
+  const { data: interviews = [], isLoading, error, refetch } = useQuery({ queryKey: ["recruiter-interviews"], queryFn: () => api("/recruiter/interviews") });
+  const [notice, setNotice] = useState("");
+  const [busyId, setBusyId] = useState("");
+  if (isLoading) return <LoadingState label="Loading interview schedule…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  const update = async (interview, status) => {
+    try {
+      setBusyId(interview.id);
+      const result = await apiJson(`/recruiter/interviews/${interview.id}`, "PATCH", { status });
+      setNotice(result.notification_warning
+        ? "Interview status updated, but the candidate notification could not be sent."
+        : "Interview status updated.");
+      await refetch();
+    } catch (failure) {
+      setNotice(failure.message);
+    } finally {
+      setBusyId("");
+    }
+  };
+  return <div className="page-enter"><PageTitle eyebrow="HIRING SCHEDULE" title="Interview Management" description="Track scheduled interviews with candidates who applied to your job listings." />{notice && <div className="form-message" role="status">{notice}</div>}{interviews.length === 0 ? <div className="state-card"><CalendarDays size={26} /><b>No interviews scheduled</b><p>Open Candidate Applications to schedule an interview with an applicant.</p><Link className="button button-primary" to="/app/recruiter/applications">View applications</Link></div> : <div className="resource-list">{interviews.map((interview) => <article className="inquiry-card" key={interview.id}><div className="inquiry-header"><div><h4>{interview.candidate_name}</h4><small>{interview.job_title} · {new Date(interview.scheduled_at).toLocaleString()}</small></div><span className={`status-tag status-${interview.status}`}>{interview.status}</span></div>{interview.notes && <p>{interview.notes}</p>}{interview.status === "scheduled" && <div className="card-actions"><Button disabled={busyId === interview.id} onClick={() => update(interview, "completed")}>Mark completed</Button><Button variant="danger" disabled={busyId === interview.id} onClick={() => update(interview, "cancelled")}>Cancel interview</Button></div>}</article>)}</div>}</div>;
+}
+
+function RecruiterSettingsPage() {
+  const [notice, setNotice] = useState("");
+  const { data, isLoading, error, refetch } = useQuery({ queryKey: ["account-role"], queryFn: () => api("/me") });
+  if (isLoading) return <LoadingState label="Loading account settings…" />;
+  if (error) return <LoadingError error={error} onRetry={refetch} />;
+  return <div className="page-enter"><PageTitle eyebrow="ACCOUNT & PRIVACY" title="Recruiter Settings" description="Manage account privacy and data options." />{notice && <div className="form-message" role="status">{notice}</div>}<SettingsContent data={data} onMessage={setNotice} /></div>;
+}
+
 function RecruiterJobsPage() {
   const [jobs, setJobs] = useState([]);
   const [applications, setApplications] = useState([]);
@@ -1351,6 +1667,19 @@ function RecruiterJobsPage() {
       setBusy(false);
     }
   };
+  const toggleJob = async (job) => {
+    try {
+      setBusy(true);
+      const status = job.status === "open" ? "closed" : "open";
+      await apiJson(`/recruiter/jobs/${job.id}`, "PATCH", { status });
+      setNotice(status === "open" ? "Job posting reopened." : "Job posting closed.");
+      await load();
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setBusy(false);
+    }
+  };
   return <div className="page-enter">
     <PageTitle eyebrow="RECRUITER WORKSPACE" title="Jobs & applications" description={`Post openings for ${companyName || "your company"} and review candidate requests for each job.`} />
     {notice && <div className="form-message" role="status">{notice}</div>}
@@ -1364,6 +1693,7 @@ function RecruiterJobsPage() {
     <section className="content-card" style={{ marginTop: "20px" }}><h3>Your job postings</h3>
       {jobs.length === 0 ? <p>You have not posted any jobs yet.</p> : <div className="resource-list">{jobs.map((job) => <article className="resource-row" key={job.id}>
         <div><b>{job.title}</b><small>{job.company_name} · {job.location || "Location not specified"} · {job.status}</small></div>
+        <Button variant="secondary" disabled={busy} onClick={() => toggleJob(job)}>{job.status === "open" ? "Close posting" : "Reopen posting"}</Button>
         <Button variant="secondary" disabled={busy} onClick={() => viewApplications(job.id)}>{selectedJob === job.id ? "Hide applications" : "View applications"}</Button>
         {selectedJob === job.id && <div style={{ flexBasis: "100%" }}>{applications.length === 0 ? <p>No applications for this job yet.</p> : applications.map((application) => <article className="inquiry-card" key={application.id}>
           <div className="inquiry-header"><div><h4>{application.candidate_name}</h4><small>{application.job_title} · {new Date(application.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${application.status}`}>{application.status}</span></div>
@@ -1463,6 +1793,7 @@ function RecruiterCandidatesPage() {
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState("");
   const [selectedCandidate, setSelectedCandidate] = useState(null);
+  const [shortlistBusyId, setShortlistBusyId] = useState("");
 
   const loadCandidates = useCallback(async () => {
     try {
@@ -1486,6 +1817,17 @@ function RecruiterCandidatesPage() {
   }, [loadCandidates]);
 
   const quickSkills = ["React", "Python", "Node.js", "TypeScript", "SQL", "Machine Learning", "AWS"];
+  const shortlist = async (candidate) => {
+    try {
+      setShortlistBusyId(candidate.id);
+      await apiJson(`/recruiter/shortlisted/${candidate.id}`, "POST", {});
+      setNotice(`${candidate.full_name} was added to your shortlist.`);
+    } catch (error) {
+      setNotice(error.message);
+    } finally {
+      setShortlistBusyId("");
+    }
+  };
 
   return (
     <div className="page-enter">
@@ -1579,6 +1921,9 @@ function RecruiterCandidatesPage() {
               <div className="card-actions" style={{ marginTop: "16px" }}>
                 <Button variant="primary" onClick={() => setSelectedCandidate(cand)}>
                   <Send size={14} /> Contact Candidate
+                </Button>
+                <Button variant="secondary" disabled={shortlistBusyId === cand.id} onClick={() => shortlist(cand)}>
+                  {shortlistBusyId === cand.id ? "Saving…" : "Shortlist"} <Check size={14} />
                 </Button>
               </div>
             </article>
@@ -1790,35 +2135,52 @@ function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => setSession(next));
     return () => subscription.unsubscribe();
   }, []);
-  const signOut = async () => { await supabase.auth.signOut(); navigate("/"); };
+  const signOut = async () => {
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      notifyFeedback("error", error.message || "Unable to sign out.");
+      return;
+    }
+    notifyFeedback("success", "Signed out successfully.");
+    navigate("/");
+  };
   if (!authReady) return <div className="boot-screen"><Brand /><span>Preparing your workspace…</span></div>;
   return (
     <Routes>
       <Route element={<PublicLayout />}>
         <Route index element={<Landing />} />
-        <Route path="/login" element={session ? <Navigate to={session.user.app_metadata?.role === "recruiter" ? "/app/recruiter/jobs" : "/app/dashboard"} replace /> : <AuthPage mode="login" />} />
-        <Route path="/register" element={session ? <Navigate to={session.user.app_metadata?.role === "recruiter" ? "/app/recruiter/jobs" : "/app/dashboard"} replace /> : <AuthPage mode="register" />} />
+        <Route path="/login" element={session ? <SignedInRedirect session={session} /> : <AuthPage mode="login" />} />
+        <Route path="/register" element={session ? <SignedInRedirect session={session} /> : <AuthPage mode="register" />} />
         <Route path="/forgot-password" element={<AuthPage mode="forgot" />} />
         <Route path="/reset-password" element={<AuthPage mode="reset" />} />
       </Route>
       <Route element={<Protected session={session} />}>
+        <Route path="/app/recruiter-access" element={<RecruiterAccessPage session={session} />} />
         <Route path="/app" element={<Shell session={session} onSignOut={signOut} />}>
-          <Route index element={<Navigate to="dashboard" replace />} />
-          <Route path="dashboard" element={<Dashboard session={session} />} />
-          <Route path="recruiter-access" element={<RecruiterAccessPage session={session} />} />
-          <Route path="inquiries" element={<CandidateInquiriesPage />} />
-          {Object.keys(routeMeta).filter((resource) => resource !== "admin/jobs").map((resource) => (
-            <Route key={resource} path={resource} element={<ResourcePage resource={resource} session={session} />} />
-          ))}
-          <Route path="careers/:id" element={<ResourceDetailPage resource="career" session={session} />} />
-          <Route path="jobs/:id" element={<ResourceDetailPage resource="job" session={session} />} />
-          <Route path="interview" element={<InterviewPage />} />
+          <Route element={<CandidateRoute session={session} />}>
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<Dashboard session={session} />} />
+            <Route path="inquiries" element={<CandidateInquiriesPage />} />
+            {Object.keys(routeMeta).filter((resource) => resource !== "admin/jobs").map((resource) => (
+              <Route key={resource} path={resource} element={<ResourcePage resource={resource} session={session} />} />
+            ))}
+            <Route path="careers/:id" element={<ResourceDetailPage resource="career" session={session} />} />
+            <Route path="jobs/:id" element={<ResourceDetailPage resource="job" session={session} />} />
+            <Route path="interview" element={<InterviewPage />} />
+          </Route>
+          <Route path="admin/dashboard" element={<AdminRoute session={session}><AdminDashboard /></AdminRoute>} />
           <Route path="admin/jobs" element={<AdminRoute session={session}><AdminJobsPage /></AdminRoute>} />
           <Route path="admin/recruiters" element={<AdminRoute session={session}><AdminRecruiterRequestsPage /></AdminRoute>} />
           <Route element={<RecruiterRoute session={session} />}>
+            <Route path="recruiter/dashboard" element={<RecruiterOverviewPage />} />
+            <Route path="recruiter/company" element={<RecruiterCompanyPage />} />
+            <Route path="recruiter/applications" element={<RecruiterApplicationsPage />} />
             <Route path="recruiter/candidates" element={<RecruiterCandidatesPage />} />
             <Route path="recruiter/inquiries" element={<RecruiterInquiriesPage />} />
             <Route path="recruiter/jobs" element={<RecruiterJobsPage />} />
+            <Route path="recruiter/shortlisted" element={<RecruiterShortlistPage />} />
+            <Route path="recruiter/interviews" element={<RecruiterInterviewsPage />} />
+            <Route path="recruiter/settings" element={<RecruiterSettingsPage />} />
           </Route>
         </Route>
       </Route>

@@ -25,7 +25,12 @@ import { isAllowedClientOrigin } from "./utils/corsOrigin.js";
 import { answerMockInterview, deleteMockInterview, finishMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
 import { searchCandidates, getCandidateDetail, sendRecruiterInquiry, listRecruiterInquiries, listCandidateInquiries, respondToInquiry } from "./services/recruiter.js";
-import { applyToRecruiterJob, createRecruiterJob, listCandidateApplications, listOpenRecruiterJobs, listRecruiterApplications, listRecruiterJobs, updateRecruiterApplication } from "./services/recruiterJobs.js";
+import {
+  addRecruiterShortlist, applyToRecruiterJob, createRecruiterJob, listCandidateApplications,
+  listOpenRecruiterJobs, listRecruiterApplications, listRecruiterInterviews, listRecruiterJobs,
+  listRecruiterShortlist, removeRecruiterShortlist, scheduleRecruiterInterview,
+  updateRecruiterApplication, updateRecruiterInterview, updateRecruiterJob,
+} from "./services/recruiterJobs.js";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -69,6 +74,14 @@ app.get("/api/v1/health", (_req, res) => send(res, { status: "ok" }));
 
 const router = express.Router();
 router.use(requireAuth);
+router.use((req, res, next) => {
+  const sharedPaths = ["/me", "/account", "/notifications"];
+  if (req.path.startsWith("/recruiter/") || req.path.startsWith("/admin/")
+    || sharedPaths.some((path) => req.path === path || req.path.startsWith(`${path}/`))) {
+    return next();
+  }
+  return requireCandidate(req, res, next);
+});
 
 router.get("/me", asyncRoute(async (req, res) => {
   const { data: profile, error: profileError } = await supabaseAdmin.from("profiles")
@@ -77,12 +90,16 @@ router.get("/me", asyncRoute(async (req, res) => {
   const { data: preferences, error: preferenceError } = await supabaseAdmin.from("preferences")
     .select("*").eq("user_id", req.user.id).maybeSingle();
   if (preferenceError) throw new AppError(500, "DATABASE_ERROR", "Could not load your preferences.");
+  const { data: recruiterAccessRequest, error: accessRequestError } = await supabaseAdmin.from("recruiter_access_requests")
+    .select("company_name, status, created_at").eq("user_id", req.user.id).maybeSingle();
+  if (accessRequestError) throw new AppError(500, "DATABASE_ERROR", "Could not load your recruiter access status.");
 
   const role = req.user.app_metadata?.role || "candidate";
 
   return send(res, {
     ...profile,
     role,
+    recruiter_access_request: recruiterAccessRequest || null,
     user: { user_metadata: req.user.user_metadata, app_metadata: req.user.app_metadata },
     preferences: preferences || {},
   });
@@ -495,9 +512,12 @@ router.post("/notifications/read-all", validate(emptyBodySchema), asyncRoute(asy
 }));
 
 router.get("/account/export", asyncRoute(async (req, res) => {
-  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "skill_gap_reports", "notifications", "mock_interviews", "recruiter_access_requests", "recruiter_jobs"];
+  const tables = ["profiles", "preferences", "documents", "candidate_profiles", "career_recommendations", "job_matches", "skill_gap_reports", "notifications", "mock_interviews", "recruiter_access_requests", "recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"];
   const entries = await Promise.all(tables.map(async (table) => {
-    const ownerField = table === "profiles" ? "id" : table === "recruiter_access_requests" ? "user_id" : table === "recruiter_jobs" ? "recruiter_id" : "user_id";
+    const ownerField = table === "profiles" ? "id"
+      : table === "recruiter_access_requests" ? "user_id"
+        : ["recruiter_jobs", "recruiter_shortlists", "recruiter_interviews"].includes(table) ? "recruiter_id"
+          : "user_id";
     const { data, error } = await supabaseAdmin.from(table).select("*").eq(ownerField, req.user.id);
     if (error) throw new AppError(500, "DATABASE_ERROR", `Could not export ${table}.`);
     return [table, data || []];
@@ -575,7 +595,7 @@ router.patch("/admin/recruiter-requests/:id", requireAdmin, uuidParam("id"), asy
       throw new AppError(409, "ROLE_CONFLICT", "An administrator account cannot be changed to a recruiter account.");
     }
     const { error: companyError } = await supabaseAdmin.from("profiles")
-      .update({ company_name: request.company_name, updated_at: new Date().toISOString() }).eq("id", request.user_id);
+      .update({ role: "recruiter", company_name: request.company_name, updated_at: new Date().toISOString() }).eq("id", request.user_id);
     if (companyError) throw new AppError(500, "DATABASE_ERROR", "Could not save the applicant company.");
     const { error: roleError } = await supabaseAdmin.auth.admin.updateUserById(request.user_id, {
       app_metadata: { ...userResult.user.app_metadata, role: "recruiter" },
@@ -618,8 +638,29 @@ router.get("/recruiter/inquiries", requireRecruiter, asyncRoute(async (req, res)
 router.get("/recruiter/jobs", requireRecruiter, asyncRoute(async (req, res) => {
   return send(res, await listRecruiterJobs(req.user.id));
 }));
+router.get("/recruiter/company", requireRecruiter, asyncRoute(async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("profiles")
+    .select("full_name, company_name, contact_email, contact_phone").eq("id", req.user.id).maybeSingle();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load your company profile.");
+  return send(res, data || {});
+}));
+router.patch("/recruiter/company", requireRecruiter, asyncRoute(async (req, res) => {
+  const input = z.object({
+    company_name: z.string().trim().min(2).max(200),
+    contact_email: z.string().email().nullable().optional(),
+    contact_phone: z.string().trim().max(40).nullable().optional(),
+  }).strict().parse(req.body);
+  const { data, error } = await supabaseAdmin.from("profiles")
+    .update({ ...input, updated_at: new Date().toISOString() }).eq("id", req.user.id)
+    .select("full_name, company_name, contact_email, contact_phone").single();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not update your company profile.");
+  return send(res, data);
+}));
 router.post("/recruiter/jobs", requireRecruiter, asyncRoute(async (req, res) => {
   return send(res, await createRecruiterJob(req.user.id, req.body), 201);
+}));
+router.patch("/recruiter/jobs/:id", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await updateRecruiterJob(req.user.id, req.params.id, req.body));
 }));
 router.get("/recruiter/jobs/:id/applications", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
   const { data: job, error } = await supabaseAdmin.from("recruiter_jobs")
@@ -628,8 +669,29 @@ router.get("/recruiter/jobs/:id/applications", requireRecruiter, uuidParam("id")
   if (!job) throw new AppError(404, "JOB_NOT_FOUND", "Job not found.");
   return send(res, await listRecruiterApplications(req.user.id, req.params.id));
 }));
+router.get("/recruiter/applications", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await listRecruiterApplications(req.user.id));
+}));
 router.patch("/recruiter/applications/:id", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
   return send(res, await updateRecruiterApplication(req.user.id, req.params.id, req.body));
+}));
+router.get("/recruiter/shortlisted", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await listRecruiterShortlist(req.user.id));
+}));
+router.post("/recruiter/shortlisted/:candidateProfileId", requireRecruiter, uuidParam("candidateProfileId"), asyncRoute(async (req, res) => {
+  return send(res, await addRecruiterShortlist(req.user.id, req.params.candidateProfileId), 201);
+}));
+router.delete("/recruiter/shortlisted/:candidateProfileId", requireRecruiter, uuidParam("candidateProfileId"), asyncRoute(async (req, res) => {
+  return send(res, await removeRecruiterShortlist(req.user.id, req.params.candidateProfileId));
+}));
+router.get("/recruiter/interviews", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await listRecruiterInterviews(req.user.id));
+}));
+router.post("/recruiter/interviews", requireRecruiter, asyncRoute(async (req, res) => {
+  return send(res, await scheduleRecruiterInterview(req.user.id, req.body), 201);
+}));
+router.patch("/recruiter/interviews/:id", requireRecruiter, uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await updateRecruiterInterview(req.user.id, req.params.id, req.body));
 }));
 
 router.get("/jobs/recruiter-posts", requireCandidate, asyncRoute(async (_req, res) => {
