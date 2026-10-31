@@ -4,6 +4,10 @@ import { documentExtractionSchema } from "./document.js";
 import { githubAnalysisSchema } from "./github.js";
 import { jobExplanationSchema, jobRequirementsSchema, skillGapSchema } from "./job.js";
 import { careerRecommendationsSchema, profileSchema } from "./profile.js";
+<<<<<<< HEAD
+=======
+import { interviewFeedbackSchema } from "./interview.js";
+>>>>>>> 5a02bbd (intial commit)
 
 describe("AI response schemas", () => {
   it("can generate JSON schemas for every structured AI response", () => {
@@ -15,6 +19,10 @@ describe("AI response schemas", () => {
       skillGapSchema,
       careerRecommendationsSchema,
       profileSchema,
+<<<<<<< HEAD
+=======
+      interviewFeedbackSchema,
+>>>>>>> 5a02bbd (intial commit)
     ]) {
       expect(() => z.toJSONSchema(schema, { unrepresentable: "any" })).not.toThrow();
     }
