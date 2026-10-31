@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
   Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Building, CalendarDays, Check, ChevronDown, ChevronRight, CircleHelp,
-  FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, Mail, MessageSquareText,
+  Eye, EyeOff, FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, Mail, MessageSquareText,
   Menu, Mic, MicOff, Search, Send, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserCheck, UserRound, Users, Video, Volume2, X,
 } from "lucide-react";
 import { supabase } from "./lib/supabase";
@@ -77,39 +77,72 @@ function Button({ children, variant = "primary", ...props }) {
   return <button className={`button button-${variant}`} {...props}>{children}</button>;
 }
 
-const Field = forwardRef(function Field({ label, error, ...props }, ref) {
-  return <label className="field"><span>{label}</span><input {...props} ref={ref} />{error && <small className="form-error">{error}</small>}</label>;
+const Field = forwardRef(function Field({ label, error, trailing, ...props }, ref) {
+  return <label className="field"><span>{label}</span>{trailing ? <span className="field-input-action"><input {...props} ref={ref} />{trailing}</span> : <input {...props} ref={ref} />}{error && <small className="form-error">{error}</small>}</label>;
 });
 
 function PublicLayout() {
-  return <><header className="public-nav"><Brand /><nav><a href="#how-it-works">How it works</a><a href="#principles">Our principles</a><Link to="/login" className="nav-login">Log in</Link><Link to="/register" className="button button-primary nav-cta">Get started <ArrowRight size={16} /></Link></nav></header><Outlet /><footer className="public-footer"><Brand /><span>Evidence-led career intelligence. Human decisions, always.</span><span>© {new Date().getFullYear()} TalentGraph</span></footer></>;
+  const { pathname } = useLocation();
+  const isAuthPage = ["/login", "/register", "/forgot-password", "/reset-password"].includes(pathname);
+  return <><header className={`public-nav ${isAuthPage ? "public-nav-hidden" : ""}`}><Brand /><nav><a href="#how-it-works">How it works</a><a href="#benefits">For you</a><Link to="/login" className="nav-login">Log in</Link><Link to="/register" className="button button-primary nav-cta">Get started <ArrowRight size={16} /></Link></nav></header><Outlet /><footer className={`public-footer ${isAuthPage ? "public-footer-hidden" : ""}`}><Brand /><span>Evidence-led career intelligence. Human decisions, always.</span><span>© {new Date().getFullYear()} TalentGraph</span></footer></>;
 }
 
 function Landing() {
-  return <main className="landing">
+  const landingRef = useRef(null);
+  useEffect(() => {
+    const sections = landingRef.current?.querySelectorAll(".landing-section, .principle-section");
+    if (!sections?.length || !("IntersectionObserver" in window)) return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.12, rootMargin: "0px 0px -32px 0px" });
+    sections.forEach((section) => {
+      section.classList.add("reveal-on-scroll");
+      observer.observe(section);
+    });
+    return () => {
+      observer.disconnect();
+      sections.forEach((section) => section.classList.remove("reveal-on-scroll", "is-visible"));
+    };
+  }, []);
+  return <main className="landing" ref={landingRef}>
     <section className="hero">
       <div className="hero-copy page-enter">
         <div className="eyebrow"><Sparkles size={15} /> CAREER INTELLIGENCE, GROUNDED IN EVIDENCE</div>
-        <h1>Your skills.<br /><span>Your next opportunity.</span></h1>
-        <p>Turn your experience into a clearer picture of what you do well, where you could grow, and which opportunities are worth exploring.</p>
-        <div className="hero-actions"><Link to="/register" className="button button-primary button-large">Build my profile <ArrowRight size={18} /></Link><a className="text-link" href="#how-it-works">See how it works <ChevronRight size={16} /></a></div>
-        <div className="trust-line"><ShieldCheck size={17} /> Your data stays yours <span>·</span> No automated hiring decisions</div>
+        <h1>Discover Your Potential.<br /><span>Build Your Future.</span></h1>
+        <p>Connect your skills, discover career opportunities and build your future with AI-powered career intelligence.</p>
+        <div className="hero-actions"><Link to="/register" className="button button-primary button-large">Get started <ArrowRight size={18} /></Link><a className="text-link" href="#how-it-works">Explore features <ChevronRight size={16} /></a></div>
+        <div className="trust-line"><ShieldCheck size={17} /> Evidence before assumptions <span>·</span> Human decisions, always</div>
       </div>
       <div className="hero-visual">
         <div className="orbit orbit-one"></div><div className="orbit orbit-two"></div>
         <div className="profile-preview">
-          <div className="preview-top"><span className="preview-icon"><UserRound size={20} /></span><div><b>Candidate profile</b><small>Evidence-backed insights</small></div><span className="live-dot" /></div>
-          <div className="preview-score"><div><span>PROFILE STRENGTH</span><strong>In progress</strong></div><div className="progress-ring"><span>—</span></div></div>
+          <div className="preview-top"><span className="preview-icon"><UserRound size={20} /></span><div><b>Your career, in focus</b><small>AI-powered, evidence-backed insights</small></div><span className="live-dot" /></div>
+          <div className="preview-score"><div><span>CAREER PROFILE</span><strong>Built around your evidence</strong></div><div className="progress-ring"><Sparkles size={20} /></div></div>
           <div className="preview-divider" />
-          <div className="preview-label">SKILL EVIDENCE</div>
-          <div className="skill-placeholder"><span className="placeholder-icon"><Github size={16} /></span><div><b>Add your experience</b><small>Projects, documents, and more</small></div><span className="status-pill">YOUR DATA</span></div>
-          <div className="preview-footer"><Sparkles size={15} /><span>Insights appear when you add evidence.</span></div>
+          <div className="preview-label">YOUR NEXT STEP</div>
+          <div className="skill-placeholder"><span className="placeholder-icon"><Github size={16} /></span><div><b>Connect skills to real work</b><small>Projects, documents, and more</small></div><span className="status-pill">YOUR DATA</span></div>
+          <div className="preview-footer"><Sparkles size={15} /><span>Useful insight starts with what you choose to share.</span></div>
         </div>
         <div className="float-chip chip-a"><span className="chip-check"><Check size={13} /></span>Evidence before claims</div>
-        <div className="float-chip chip-b"><Target size={16} />Your next step, made clearer</div>
+        <div className="float-chip chip-b"><Target size={16} />A clearer next step</div>
       </div>
     </section>
-    <section className="feature-strip" id="how-it-works"><div><span className="feature-number">01</span><FileText /><h3>Bring your evidence</h3><p>Share resumes, project work, certificates, or a public GitHub profile.</p></div><div><span className="feature-number">02</span><Fingerprint /><h3>See the full picture</h3><p>Connect your skills to evidence and spot what still needs assessment.</p></div><div><span className="feature-number">03</span><BriefcaseBusiness /><h3>Explore your options</h3><p>Compare career paths and open roles with transparent fit explanations.</p></div></section>
+    <section className="landing-section" id="how-it-works">
+      <div className="section-heading"><div className="eyebrow">A MORE THOUGHTFUL WAY FORWARD</div><h2>Make your experience<br /><span>work for your future.</span></h2><p>Bring together the work you’ve done, the skills you’ve built, and the opportunities you want to explore.</p></div>
+      <div className="feature-strip"><div><span className="feature-number">01</span><FileText /><h3>Bring your evidence</h3><p>Share resumes, project work, certificates, or a public GitHub profile.</p></div><div><span className="feature-number">02</span><Fingerprint /><h3>See the full picture</h3><p>Connect your skills to evidence and spot what still needs assessment.</p></div><div><span className="feature-number">03</span><BriefcaseBusiness /><h3>Explore your options</h3><p>Compare career paths and open roles with transparent fit explanations.</p></div></div>
+    </section>
+    <section className="landing-section landing-benefits" id="benefits">
+      <div className="section-heading"><div className="eyebrow">ONE PLATFORM, DISTINCT WORKSPACES</div><h2>Built for every side<br /><span>of a career connection.</span></h2><p>AI helps connect evidence to skills and opportunities. People stay in control of what they share and every hiring decision.</p></div>
+      <div className="benefit-grid">
+        <article className="benefit-card"><span className="benefit-icon"><UserRound size={20} /></span><div className="eyebrow">FOR CANDIDATES</div><h3>Put your skills in context.</h3><p>Build a profile grounded in your own evidence, explore career paths, and discover relevant job matches.</p><Link to="/register" className="text-link">Build your profile <ArrowRight size={16} /></Link></article>
+        <article className="benefit-card"><span className="benefit-icon"><Building size={20} /></span><div className="eyebrow">FOR RECRUITERS</div><h3>Connect roles with evidence.</h3><p>Post opportunities, review relevant candidate applications, and manage your hiring workflow in one workspace.</p><Link to="/register" className="text-link">Request recruiter access <ArrowRight size={16} /></Link></article>
+      </div>
+    </section>
     <section className="principle-section" id="principles"><div className="principle-icon"><ShieldCheck size={25} /></div><div><div className="eyebrow">BUILT FOR PEOPLE, NOT AUTOMATED DECISIONS</div><h2>Insight should empower you.<br />The decision is always yours.</h2><p>TalentGraph offers guidance based on information you choose to share. It never makes hiring decisions, ranks people against one another, or applies to jobs on your behalf.</p></div><Link to="/register" className="text-link">Start exploring <ArrowRight size={16} /></Link></section>
   </main>;
 }
@@ -119,6 +152,7 @@ function AuthPage({ mode }) {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
   const [accountType, setAccountType] = useState("candidate");
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [registrationStatus, setRegistrationStatus] = useState(null);
   const [registrationBusy, setRegistrationBusy] = useState(false);
   const [resendMessage, setResendMessage] = useState("");
@@ -279,7 +313,7 @@ function AuthPage({ mode }) {
   const subheading = register ? accountType === "recruiter" ? "Request a verified recruiter account for your company." : "Start building a clearer picture of your skills." : mode === "forgot" ? "We’ll send you a secure password reset link." : mode === "reset" ? "Choose a new password for your account." : "Sign in to continue exploring your career.";
   if (registrationStatus) {
     const awaitingConfirmation = registrationStatus.requiresConfirmation;
-    return <main className="auth-page"><section className="auth-card page-enter">
+    return <main className="auth-page"><aside className="auth-story"><Brand light /><div className="auth-story-copy"><div className="eyebrow">TALENTGRAPH CAREER INTELLIGENCE</div><h2>Your Career.<br /><span>Your Future.</span><br />Your Intelligence.</h2><p>Make your experience visible. Explore what comes next with AI-powered insight grounded in evidence.</p><div className="auth-story-points"><span><ShieldCheck size={16} /> Your data stays yours</span><span><Fingerprint size={16} /> Evidence-led insights</span><span><Users size={16} /> Human decisions, always</span></div></div><div className="auth-story-foot">A clearer picture of what you can do.</div></aside><section className="auth-card page-enter">
       <Link to="/" className="back-link">← Back to home</Link>
       <div className="auth-heading"><span className="auth-icon"><Mail size={20} /></span><h1>{awaitingConfirmation ? "Check your email" : "Your account was created"}</h1>
         <p>{awaitingConfirmation
@@ -297,16 +331,14 @@ function AuthPage({ mode }) {
       {awaitingConfirmation && <p className="auth-switch">If you don’t see it, check your spam folder. Make sure Supabase allows this app URL: <b>{window.location.origin}/login</b>.</p>}
     </section></main>;
   }
-  return <main className="auth-page"><section className="auth-card page-enter"><Link to="/" className="back-link">← Back to home</Link><div className="auth-heading"><span className="auth-icon"><Sparkles size={20} /></span><h1>{heading}</h1><p>{subheading}</p></div>
+  return <main className="auth-page"><aside className="auth-story"><Brand light /><div className="auth-story-copy"><div className="eyebrow">TALENTGRAPH CAREER INTELLIGENCE</div><h2>Your Career.<br /><span>Your Future.</span><br />Your Intelligence.</h2><p>Make your experience visible. Explore what comes next with AI-powered insight grounded in evidence.</p><div className="auth-story-points"><span><ShieldCheck size={16} /> Your data stays yours</span><span><Fingerprint size={16} /> Evidence-led insights</span><span><Users size={16} /> Human decisions, always</span></div></div><div className="auth-story-foot">A clearer picture of what you can do.</div></aside><section className="auth-card page-enter"><Link to="/" className="back-link">← Back to home</Link><div className="auth-heading"><span className="auth-icon"><Sparkles size={20} /></span><h1>{heading}</h1><p>{subheading}</p></div>
     {message && <div className={`form-message form-message-${messageTone(message)}`} role="alert">{message}</div>}
     <form onSubmit={handleSubmit(onSubmit)} className="auth-form">
-      {register
-        ? <label className="field"><span>Account type</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="candidate">Candidate</option><option value="recruiter">Recruiter (requires approval)</option></select></label>
-        : mode === "login" && <label className="field"><span>Sign in as</span><select value={accountType} onChange={(event) => setAccountType(event.target.value)}><option value="candidate">Candidate</option><option value="recruiter">Recruiter</option></select></label>}
+      {(register || mode === "login") && <div className="field"><span>{register ? "Account type" : "Sign in as"}</span><div className="role-selector" role="group" aria-label={register ? "Account type" : "Sign in as"}>{["candidate", "recruiter"].map((role) => <button key={role} type="button" className={accountType === role ? "role-option active" : "role-option"} aria-pressed={accountType === role} onClick={() => setAccountType(role)}><span className="role-option-icon">{role === "candidate" ? <UserRound size={17} /> : <Building size={17} />}</span><span><b>{role === "candidate" ? "Candidate" : "Recruiter"}</b><small>{role === "candidate" ? "Explore your next step" : register ? "Request company access" : "Approved accounts"}</small></span></button>)}</div></div>}
       {register && <Field label="Full name" placeholder="Your name" autoComplete="name" error={errors.full_name?.message} {...field("full_name")} />}
       {register && accountType === "recruiter" && <Field label="Company name" placeholder="Company you work for" autoComplete="organization" error={errors.company_name?.message} {...field("company_name")} />}
       {mode !== "reset" && <Field label="Email address" type="email" placeholder="you@example.com" autoComplete="email" error={errors.email?.message} {...field("email")} />}
-      {mode !== "forgot" && <Field label="Password" type="password" placeholder={mode === "reset" ? "New password" : "At least 8 characters"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"} error={errors.password?.message} {...field("password")} />}
+      {mode !== "forgot" && <Field label="Password" type={mode === "login" && passwordVisible ? "text" : "password"} trailing={mode === "login" ? <button className="password-toggle" type="button" aria-label={passwordVisible ? "Hide password" : "Show password"} aria-pressed={passwordVisible} onClick={() => setPasswordVisible((visible) => !visible)}>{passwordVisible ? <EyeOff size={17} /> : <Eye size={17} />}</button> : null} placeholder={mode === "reset" ? "New password" : "At least 8 characters"} autoComplete={register || mode === "reset" ? "new-password" : "current-password"} error={errors.password?.message} {...field("password")} />}
       {register && <label className="consent"><input type="checkbox" {...field("consent_ai_processing")} /><span>I consent to AI processing of the information I submit to generate career insights. I can withdraw this consent later.</span></label>}
       {errors.consent_ai_processing && <small className="form-error">{errors.consent_ai_processing.message}</small>}
       <Button type="submit" disabled={isSubmitting}>{isSubmitting ? "Please wait…" : register ? "Create account" : mode === "forgot" ? "Send reset link" : mode === "reset" ? "Update password" : "Sign in"} <ArrowRight size={16} /></Button>
@@ -1314,6 +1346,8 @@ function DocumentIntake({ onDone, onError }) {
   const [title, setTitle] = useState("");
   const [text, setText] = useState("");
   const [url, setUrl] = useState("");
+  const [selectedFile, setSelectedFile] = useState(null);
+  const fileInputRef = useRef(null);
   const textTypes = docType === "text_note";
   const linkType = docType === "github_profile" || docType === "portfolio_link";
   const submit = async (event) => {
@@ -1325,14 +1359,14 @@ function DocumentIntake({ onDone, onError }) {
     if (textTypes) body.append("text", text);
     if (linkType) body.append("url", url.trim());
     if (!textTypes && !linkType) {
-      const file = form.elements.namedItem("file").files?.[0];
-      if (!file) { onError("Choose a PDF or image to upload."); return; }
-      body.append("file", file);
+      if (!selectedFile) { onError("Choose a PDF or image to upload."); return; }
+      body.append("file", selectedFile);
     }
     try {
       setBusy(true);
       await api("/documents", { method: "POST", body });
       setTitle(""); setText(""); setUrl("");
+      setSelectedFile(null);
       form.reset();
       onDone();
     } catch (error) {
@@ -1341,9 +1375,9 @@ function DocumentIntake({ onDone, onError }) {
   };
   return <form id="add-evidence" className="content-card document-intake" onSubmit={submit}>
     <div><h3>Add career evidence</h3><p>Upload a document, add a text note, or link a public GitHub profile.</p></div>
-    <label className="field"><span>Evidence type</span><select value={docType} onChange={(event) => setDocType(event.target.value)}>{[["resume", "Resume"], ["certificate", "Certificate"], ["education_record", "Education record"], ["project_report", "Project report"], ["project_screenshot", "Project screenshot"], ["text_note", "Text note"], ["github_profile", "GitHub profile or repository"], ["portfolio_link", "Portfolio link"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <label className="field"><span>Evidence type</span><select value={docType} onChange={(event) => { setDocType(event.target.value); setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}>{[["resume", "Resume"], ["certificate", "Certificate"], ["education_record", "Education record"], ["project_report", "Project report"], ["project_screenshot", "Project screenshot"], ["text_note", "Text note"], ["github_profile", "GitHub profile or repository"], ["portfolio_link", "Portfolio link"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <label className="field"><span>Title (optional)</span><input value={title} maxLength="200" onChange={(event) => setTitle(event.target.value)} placeholder="e.g. Backend project report" /></label>
-    {textTypes ? <label className="field"><span>Text (up to 20,000 characters)</span><textarea rows="5" maxLength="20000" required value={text} onChange={(event) => setText(event.target.value)} placeholder="Add relevant experience, project context, or notes…" /></label> : linkType ? <label className="field"><span>{docType === "github_profile" ? "Public GitHub URL" : "Portfolio URL"}</span><input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder={docType === "github_profile" ? "https://github.com/username" : "https://example.com/portfolio"} /></label> : <label className="field"><span>File (PDF or image)</span><input name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" /></label>}
+    {textTypes ? <label className="field"><span>Text (up to 20,000 characters)</span><textarea rows="5" maxLength="20000" required value={text} onChange={(event) => setText(event.target.value)} placeholder="Add relevant experience, project context, or notes…" /></label> : linkType ? <label className="field"><span>{docType === "github_profile" ? "Public GitHub URL" : "Portfolio URL"}</span><input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} placeholder={docType === "github_profile" ? "https://github.com/username" : "https://example.com/portfolio"} /></label> : <><label className="field"><span>File (PDF or image)</span><input ref={fileInputRef} name="file" type="file" required accept=".pdf,.png,.jpg,.jpeg,.webp,application/pdf,image/png,image/jpeg,image/webp" onChange={(event) => setSelectedFile(event.target.files?.[0] || null)} /></label>{selectedFile && <div className="selected-file" aria-live="polite"><span className="selected-file-icon"><FileText size={17} /></span><span className="selected-file-details"><b>{selectedFile.name}</b><small>{selectedFile.size < 1024 ? `${selectedFile.size} B` : selectedFile.size < 1024 * 1024 ? `${(selectedFile.size / 1024).toFixed(1)} KB` : `${(selectedFile.size / (1024 * 1024)).toFixed(1)} MB`}</small></span><button className="selected-file-remove" type="button" aria-label="Remove selected file" onClick={() => { setSelectedFile(null); if (fileInputRef.current) fileInputRef.current.value = ""; }}><X size={16} /></button></div>}</>}
     <Button type="submit" disabled={busy}>{busy ? <><span className="button-spinner" aria-hidden="true" /> Uploading securely…</> : <>Add evidence <ArrowRight size={15} /></>}</Button>
   </form>;
 }
