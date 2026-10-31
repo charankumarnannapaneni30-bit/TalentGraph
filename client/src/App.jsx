@@ -119,8 +119,16 @@ function AuthPage({ mode }) {
   const navigate = useNavigate();
   const [message, setMessage] = useState("");
   const [accountType, setAccountType] = useState("candidate");
+  const [registrationStatus, setRegistrationStatus] = useState(null);
+  const [registrationBusy, setRegistrationBusy] = useState(false);
+  const [resendMessage, setResendMessage] = useState("");
   const schema = mode === "forgot" ? z.object({ email: z.string().email() }) : mode === "reset" ? z.object({ password: z.string().min(8) }) : register
-    ? registerSchema.extend({ company_name: z.string().trim().min(2).max(200).optional() }).superRefine((values, context) => {
+    ? registerSchema.extend({
+      company_name: z.preprocess(
+        (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+        z.string().trim().min(2).max(200).optional(),
+      ),
+    }).superRefine((values, context) => {
       if (accountType === "recruiter" && !values.company_name) context.addIssue({ code: z.ZodIssueCode.custom, path: ["company_name"], message: "Company name is required for recruiter access." });
     })
     : loginSchema;
@@ -147,7 +155,7 @@ function AuthPage({ mode }) {
         return;
       }
       const result = register
-        ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { data: { full_name: values.full_name, consent_ai_processing: true, account_type: accountType, ...(accountType === "recruiter" ? { company_name: values.company_name } : {}) } } })
+        ? await supabase.auth.signUp({ email: values.email, password: values.password, options: { emailRedirectTo: `${window.location.origin}/login`, data: { full_name: values.full_name, consent_ai_processing: true, account_type: accountType, ...(accountType === "recruiter" ? { company_name: values.company_name } : {}) } } })
         : await supabase.auth.signInWithPassword({ email: values.email, password: values.password });
       if (result.error) throw result.error;
       if (!register && accountType === "candidate") {
@@ -156,18 +164,33 @@ function AuthPage({ mode }) {
         return;
       }
       if (register && !result.data.session) {
-        setMessage(`Check your email to confirm your account, then sign in as ${accountType === "recruiter" ? "Recruiter" : "Candidate"}.`);
+        setRegistrationStatus({
+          email: values.email,
+          fullName: values.full_name,
+          accountType,
+          requiresConfirmation: true,
+        });
         notifyFeedback("success", "Account created. Check your email to confirm it.");
         return;
       }
       if (register) {
-        await apiJson("/me", "PATCH", { full_name: values.full_name, consent_ai_processing: true });
-        if (accountType === "recruiter") {
-          await apiJson("/recruiter/access-requests", "POST", { company_name: values.company_name });
-          navigate("/app/recruiter-access");
+        try {
+          await apiJson("/me", "PATCH", { full_name: values.full_name, consent_ai_processing: true });
+          if (accountType === "recruiter") {
+            await apiJson("/recruiter/access-requests", "POST", { company_name: values.company_name });
+          }
+        } catch (error) {
+          setRegistrationStatus({
+            email: values.email,
+            fullName: values.full_name,
+            accountType,
+            companyName: values.company_name,
+            requiresConfirmation: false,
+            setupError: error.message,
+          });
           return;
         }
-        navigate("/app/dashboard");
+        navigate(accountType === "recruiter" ? "/app/recruiter-access" : "/app/dashboard", { replace: true });
         return;
       }
       const account = await api("/me");
@@ -209,8 +232,71 @@ function AuthPage({ mode }) {
       notifyFeedback("error", friendlyMessage);
     }
   };
+  const retryRegistrationSetup = async () => {
+    if (!registrationStatus || registrationStatus.requiresConfirmation) return;
+    setRegistrationBusy(true);
+    setResendMessage("");
+    try {
+      await apiJson("/me", "PATCH", {
+        full_name: registrationStatus.fullName,
+        consent_ai_processing: true,
+      });
+      if (registrationStatus.accountType === "recruiter") {
+        await apiJson("/recruiter/access-requests", "POST", {
+          company_name: registrationStatus.companyName,
+        });
+      }
+      navigate(registrationStatus.accountType === "recruiter" ? "/app/recruiter-access" : "/app/dashboard", { replace: true });
+    } catch (error) {
+      setRegistrationStatus((current) => ({ ...current, setupError: error.message }));
+      notifyFeedback("error", error.message || "Account setup could not be completed.");
+    } finally {
+      setRegistrationBusy(false);
+    }
+  };
+  const resendConfirmation = async () => {
+    if (!registrationStatus?.email) return;
+    setRegistrationBusy(true);
+    setResendMessage("");
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: registrationStatus.email,
+        options: { emailRedirectTo: `${window.location.origin}/login` },
+      });
+      if (error) throw error;
+      setResendMessage("A new confirmation email has been sent. Check your inbox and spam folder.");
+      notifyFeedback("success", "Confirmation email sent.");
+    } catch (error) {
+      const friendlyMessage = authErrorMessage(error);
+      setResendMessage(friendlyMessage);
+      notifyFeedback("error", friendlyMessage);
+    } finally {
+      setRegistrationBusy(false);
+    }
+  };
   const heading = register ? "Create your account" : mode === "forgot" ? "Reset your password" : mode === "reset" ? "Choose a new password" : "Welcome back";
   const subheading = register ? accountType === "recruiter" ? "Request a verified recruiter account for your company." : "Start building a clearer picture of your skills." : mode === "forgot" ? "We’ll send you a secure password reset link." : mode === "reset" ? "Choose a new password for your account." : "Sign in to continue exploring your career.";
+  if (registrationStatus) {
+    const awaitingConfirmation = registrationStatus.requiresConfirmation;
+    return <main className="auth-page"><section className="auth-card page-enter">
+      <Link to="/" className="back-link">← Back to home</Link>
+      <div className="auth-heading"><span className="auth-icon"><Mail size={20} /></span><h1>{awaitingConfirmation ? "Check your email" : "Your account was created"}</h1>
+        <p>{awaitingConfirmation
+          ? `We sent a confirmation link to ${registrationStatus.email}. Confirm your email, then sign in as a ${registrationStatus.accountType === "recruiter" ? "recruiter" : "candidate"}.`
+          : "Your account is ready, but we couldn’t finish setting up your profile."}</p>
+      </div>
+      {!awaitingConfirmation && <div className="form-message form-message-negative" role="alert">{registrationStatus.setupError}</div>}
+      {resendMessage && <div className={`form-message form-message-${messageTone(resendMessage)}`} role="status">{resendMessage}</div>}
+      <div className="auth-form">
+        {awaitingConfirmation
+          ? <Button type="button" variant="secondary" disabled={registrationBusy} onClick={resendConfirmation}>{registrationBusy ? "Sending…" : "Resend confirmation email"} <Mail size={16} /></Button>
+          : <Button type="button" disabled={registrationBusy} onClick={retryRegistrationSetup}>{registrationBusy ? "Finishing setup…" : "Retry account setup"} <ArrowRight size={16} /></Button>}
+        <Link className="button button-primary" to="/login">Go to sign in <ArrowRight size={16} /></Link>
+      </div>
+      {awaitingConfirmation && <p className="auth-switch">If you don’t see it, check your spam folder. Make sure Supabase allows this app URL: <b>{window.location.origin}/login</b>.</p>}
+    </section></main>;
+  }
   return <main className="auth-page"><section className="auth-card page-enter"><Link to="/" className="back-link">← Back to home</Link><div className="auth-heading"><span className="auth-icon"><Sparkles size={20} /></span><h1>{heading}</h1><p>{subheading}</p></div>
     {message && <div className={`form-message form-message-${messageTone(message)}`} role="alert">{message}</div>}
     <form onSubmit={handleSubmit(onSubmit)} className="auth-form">

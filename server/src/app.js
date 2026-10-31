@@ -118,12 +118,11 @@ router.patch("/me", validate(meSchema), asyncRoute(async (req, res) => {
     update.consent_at = req.body.consent_ai_processing ? new Date().toISOString() : null;
   }
 
-  let savedData = { id: req.user.id, full_name: req.body.full_name || req.user.user_metadata?.full_name };
-  try {
-    const { data, error } = await supabaseAdmin.from("profiles").update(update).eq("id", req.user.id).select("id, full_name, company_name, consent_ai_processing, consent_at").single();
-    if (!error && data) savedData = data;
-  } catch (err) {
-    logger.warn({ err }, "Could not update some fields in profiles table");
+  const { data: savedData, error: profileError } = await supabaseAdmin.from("profiles")
+    .update(update).eq("id", req.user.id)
+    .select("id, full_name, company_name, consent_ai_processing, consent_at").single();
+  if (profileError || !savedData) {
+    throw new AppError(500, "PROFILE_UPDATE_FAILED", "Could not save your profile and AI-processing consent. Please retry.");
   }
 
   const updatedMetadata = { ...req.user.user_metadata };
