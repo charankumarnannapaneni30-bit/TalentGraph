@@ -22,7 +22,7 @@ import { runStructured } from "./ai/runStructured.js";
 import { systemInstruction } from "./ai/prompts/system.js";
 import { DISCLAIMER } from "./config/advisory.js";
 import { isAllowedClientOrigin } from "./utils/corsOrigin.js";
-import { answerMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
+import { answerMockInterview, deleteMockInterview, finishMockInterview, getMockInterview, listMockInterviews, startMockInterview, transcribeInterviewAudio } from "./services/interviews.js";
 import { INTERVIEW_AUDIO_MAX_BYTES } from "./services/interviewConfig.js";
 
 const app = express();
@@ -136,10 +136,16 @@ router.post("/interviews", aiRateLimit, requireConsent, validate(interviewStartS
 router.get("/interviews/:id", uuidParam("id"), asyncRoute(async (req, res) => {
   return send(res, await getMockInterview(req.user.id, req.params.id));
 }));
+router.delete("/interviews/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+  return send(res, await deleteMockInterview(req.user.id, req.params.id));
+}));
 router.post("/interviews/:id/answers", uuidParam("id"), aiRateLimit, requireConsent, validate(z.object({
   answer: z.string().trim().min(1).max(6000),
 }).strict()), asyncRoute(async (req, res) => {
   return send(res, await answerMockInterview(req.user.id, req.params.id, req.body.answer));
+}));
+router.post("/interviews/:id/finish", uuidParam("id"), aiRateLimit, requireConsent, validate(emptyBodySchema), asyncRoute(async (req, res) => {
+  return send(res, await finishMockInterview(req.user.id, req.params.id));
 }));
 router.post("/interviews/:id/transcribe", uuidParam("id"), aiRateLimit, requireConsent, interviewAudioUpload.single("audio"), asyncRoute(async (req, res) => {
   if (!req.file) throw new AppError(422, "AUDIO_REQUIRED", "Record an answer before requesting transcription.");
@@ -432,6 +438,13 @@ router.get("/skill-gaps/:id", uuidParam("id"), asyncRoute(async (req, res) => {
   if (error) throw new AppError(500, "DATABASE_ERROR", "Could not load this skill-gap report.");
   if (!data) throw new AppError(404, "NOT_FOUND", "Skill-gap report not found.");
   return send(res, data);
+}));
+router.delete("/skill-gaps/:id", uuidParam("id"), asyncRoute(async (req, res) => {
+  const { data, error } = await supabaseAdmin.from("skill_gap_reports").delete()
+    .eq("user_id", req.user.id).eq("id", req.params.id).select("id").maybeSingle();
+  if (error) throw new AppError(500, "DATABASE_ERROR", "Could not delete this skill roadmap.");
+  if (!data) throw new AppError(404, "NOT_FOUND", "Skill roadmap not found.");
+  return send(res, { deleted: true });
 }));
 
 router.get("/notifications", asyncRoute(async (req, res) => {
