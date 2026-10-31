@@ -5,11 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import {
-<<<<<<< HEAD
-  Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Check, ChevronRight, CircleHelp,
-=======
   Activity, AlertTriangle, ArrowRight, Bell, BriefcaseBusiness, Check, ChevronDown, ChevronRight, CircleHelp,
->>>>>>> 5a02bbd (intial commit)
   FileText, Fingerprint, Gauge, Github, GraduationCap, LayoutDashboard, LogOut, MessageSquareText,
   Menu, Mic, MicOff, Search, Settings, ShieldCheck, Sparkles, Target, Trash2, UploadCloud, UserRound, Video, Volume2, X,
 } from "lucide-react";
@@ -29,8 +25,6 @@ const menu = [
 ];
 const disclaimer = "AI-generated insights are advisory and based only on the information you provided. They are not hiring decisions. Verify details with the employer.";
 
-<<<<<<< HEAD
-=======
 function messageTone(message) {
   const text = String(message || "").toLowerCase();
   if (/\b(could not|couldn't|failed|failure|error|unavailable|blocked|denied|too large|no audio|no microphone|not supported|not found|not configured|timed out|cannot|can't|required|invalid|exceeded|busy|already finished)\b/.test(text)) return "negative";
@@ -38,7 +32,6 @@ function messageTone(message) {
   return "neutral";
 }
 
->>>>>>> 5a02bbd (intial commit)
 function Brand({ light = false }) {
   return <Link to="/" className={`brand ${light ? "brand-light" : ""}`}><span className="brand-mark"><Activity size={19} /></span><span>Talent<span className="brand-emphasis">Graph</span></span></Link>;
 }
@@ -147,21 +140,15 @@ function AdminRoute({ session, children }) {
 }
 
 function Shell({ session, onSignOut }) {
-<<<<<<< HEAD
-  const [open, setOpen] = useState(false);
-=======
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const accountMenuRef = useRef(null);
->>>>>>> 5a02bbd (intial commit)
   const [unreadCount, setUnreadCount] = useState(0);
   const [latestNotifications, setLatestNotifications] = useState([]);
   const location = useLocation();
   const visibleMenu = session?.user?.app_metadata?.role === "admin" ? [...menu, ["Job administration", "/app/admin/jobs", BriefcaseBusiness]] : menu;
   const current = visibleMenu.find((item) => location.pathname.startsWith(item[1]))?.[0] || "Workspace";
-<<<<<<< HEAD
-=======
   const accountName = session?.user?.user_metadata?.full_name || "Your workspace";
   const accountEmail = session?.user?.email || "";
   const accountInitial = (session?.user?.user_metadata?.full_name?.[0] || accountEmail[0] || "U").toUpperCase();
@@ -180,7 +167,6 @@ function Shell({ session, onSignOut }) {
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [accountOpen]);
->>>>>>> 5a02bbd (intial commit)
   useEffect(() => {
     let active = true;
     const refreshCount = () => api("/notifications").then((items) => {
@@ -210,11 +196,6 @@ function Shell({ session, onSignOut }) {
     }
   };
   return <div className="app-shell">
-<<<<<<< HEAD
-    {open && <button className="mobile-backdrop" onClick={() => setOpen(false)} aria-label="Close navigation" />}
-    <aside className={`sidebar ${open ? "sidebar-open" : ""}`}><div className="sidebar-brand"><Brand /></div><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{visibleMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setOpen(false)} className={location.pathname.startsWith(path) ? "active" : ""}><Icon size={18} /><span>{label}</span>{label === "Job matches" && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><Link to="/app/preferences"><Settings size={18} />Preferences</Link><Link to="/app/settings"><ShieldCheck size={18} />Settings & privacy</Link><button onClick={onSignOut}><LogOut size={18} />Sign out</button><div className="sidebar-user"><span>{session?.user?.email?.[0]?.toUpperCase() || "U"}</span><div><b>{session?.user?.user_metadata?.full_name || "Your workspace"}</b><small>Candidate account</small></div></div></div></aside>
-    <div className="main-column"><header className="topbar"><button className="mobile-menu" onClick={() => setOpen(true)} aria-label="Open navigation"><Menu size={21} /></button><div className="breadcrumb">Workspace <ChevronRight size={14} /> <b>{current}</b></div><div className="topbar-actions"><button className="icon-button" aria-label="Search"><Search size={18} /></button><div className="notification-menu"><button className="icon-button notification-button" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`} onClick={() => setOpen((value) => !value)}><Bell size={18} />{unreadCount > 0 && <i />}</button>{open && <div className="notification-popover"><div className="notification-popover-head"><b>Notifications</b><Link to="/app/notifications" onClick={() => setOpen(false)}>View all</Link></div>{latestNotifications.length ? latestNotifications.map((item) => <button className={`notification-item ${item.is_read ? "" : "unread"}`} key={item.id} onClick={() => markLatestRead(item)}><b>{item.title}</b><small>{item.body || item.type}</small></button>) : <p>No notifications yet.</p>}</div>}</div><div className="avatar">{session?.user?.user_metadata?.full_name?.[0]?.toUpperCase() || "U"}</div></div></header><main className="app-content"><Outlet /></main></div>
-=======
     {sidebarOpen && <button className="mobile-backdrop" onClick={() => setSidebarOpen(false)} aria-label="Close navigation" />}
     <aside className={`sidebar ${sidebarOpen ? "sidebar-open" : ""}`}><div className="sidebar-brand"><Brand /></div><div className="workspace-label">WORKSPACE</div><nav className="side-nav">{visibleMenu.map(([label, path, Icon]) => <Link key={path} to={path} onClick={() => setSidebarOpen(false)} className={location.pathname.startsWith(path) ? "active" : ""}><Icon size={18} /><span>{label}</span>{label === "Job matches" && <span className="nav-dot" />}</Link>)}</nav><div className="sidebar-bottom"><Link to="/app/preferences"><Settings size={18} />Preferences</Link><Link to="/app/settings"><ShieldCheck size={18} />Settings & privacy</Link><button onClick={onSignOut}><LogOut size={18} />Sign out</button><div className="sidebar-user"><span>{accountInitial}</span><div><b>{accountName}</b><small>Candidate account</small></div></div></div></aside>
     <div className="main-column">
@@ -242,7 +223,6 @@ function Shell({ session, onSignOut }) {
       </header>
       <main className="app-content"><Outlet /></main>
     </div>
->>>>>>> 5a02bbd (intial commit)
   </div>;
 }
 
@@ -462,11 +442,7 @@ function ResourcePage({ resource, session }) {
   }, [data, profileBuildBaseline, profileBuildStartedAt, profilePollCount, profilePolling, refetch]);
   const action = resource === "documents" ? <a href="#add-evidence" className="button button-primary"><UploadCloud size={17} /> Add evidence</a> : resource === "profile" ? <Button disabled={busy || profilePolling} onClick={async () => { try { setBusy(true); setNotice(""); const startedAt = new Date().toISOString(); await apiJson("/profile/build", "POST", {}); setProfileBuildBaseline(data?.version ?? null); setProfileBuildStartedAt(startedAt); setProfilePollCount(0); setProfilePolling(true); setNotice("Profile build started. We’ll keep you updated as the profile and recommendations are prepared."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> {profilePolling ? "Building profile…" : "Build my profile"}</Button> : resource === "careers" ? <Button disabled={busy} onClick={async () => { try { setBusy(true); await apiJson("/careers/refresh", "POST", {}); setNotice("Career refresh queued. Refresh this page in a few moments."); refetch(); } catch (e) { setNotice(e.message); } finally { setBusy(false); } }}><Sparkles size={16} /> Refresh recommendations</Button> : null;
   const empty = (Array.isArray(data) && data.length === 0) || (resource === "profile" && !data?.id) || (resource === "evidence" && !data?.supported_skills) || (resource === "jobs" && !data?.items?.length);
-<<<<<<< HEAD
-  return <div className="page-enter"><PageTitle eyebrow={eyebrow} title={title} description={description} action={action} />{["profile", "evidence", "careers", "jobs", "skill-gaps"].includes(resource) && <Disclaimer />}{notice && <div className="form-message" role="status">{notice}</div>}
-=======
   return <div className="page-enter"><PageTitle eyebrow={eyebrow} title={title} description={description} action={action} />{["profile", "evidence", "careers", "jobs", "skill-gaps"].includes(resource) && <Disclaimer />}{notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
->>>>>>> 5a02bbd (intial commit)
     {resource === "documents" && <DocumentIntake onDone={() => { setNotice("Evidence received. Processing status will appear in the list."); refetch(); }} onError={(message) => setNotice(message)} />}
     {resource === "jobs" && <JobFilters onApply={setJobFilters} />}
     {resource === "skill-gaps" && hasData && <SkillGapForm onMessage={setNotice} onCreated={refetch} />}
@@ -632,8 +608,6 @@ function InterviewPage() {
   }, []);
   useEffect(() => { loadInterviews(); }, [loadInterviews]);
 
-<<<<<<< HEAD
-=======
   const deleteInterview = async (interview) => {
     if (!window.confirm(`Permanently delete the mock interview for ${interview.target_role}? Its transcript and feedback will also be deleted.`)) return;
     try {
@@ -644,7 +618,6 @@ function InterviewPage() {
     } catch (error) { setNotice(error.message); } finally { setBusy(false); }
   };
 
->>>>>>> 5a02bbd (intial commit)
   const start = async (event) => {
     event.preventDefault();
     let stream;
@@ -699,8 +672,6 @@ function InterviewPage() {
       setNotice(`Could not get the next question. Your answer is still here; please try submitting it again. ${failureMessage}`);
     } finally { setBusy(false); }
   };
-<<<<<<< HEAD
-=======
   const finishInterview = async () => {
     if (!current || !window.confirm("Finish this interview now and generate feedback from submitted answers? Your unsent draft will not be included.")) return;
     stopQuestionPlayback();
@@ -712,7 +683,6 @@ function InterviewPage() {
       await loadInterviews();
     } catch (error) { setNotice(error.message); } finally { setBusy(false); }
   };
->>>>>>> 5a02bbd (intial commit)
   const transcript = current?.transcript || [];
   const nextIsCandidate = transcript.at(-1)?.role === "interviewer" && current?.status === "in_progress";
   const stopRecording = () => {
@@ -841,11 +811,7 @@ function InterviewPage() {
   return <div className="page-enter">
     <PageTitle eyebrow="PRACTICE & PREPARE" title="Video mock interview" description="Practice with your camera on. Questions use your saved profile skills and credentials when available; this is practice, not an assessment." />
     <Disclaimer />
-<<<<<<< HEAD
-    {notice && <div className="form-message" role="status">{notice}</div>}
-=======
     {notice && <div className={`form-message form-message-${messageTone(notice)}`} role="status">{notice}</div>}
->>>>>>> 5a02bbd (intial commit)
     {!current ? <section className="content-card">
       <h3>Start a practice interview</h3>
       <p>Allow camera access to begin. Choose a difficulty and the interview will keep all 10 questions at that level. When you choose to speak, a recording of up to five minutes is sent to Gemini for transcription and then discarded by TalentGraph; video is never recorded or uploaded. Only the text transcript is saved with the session. AI-processing consent is required.</p>
@@ -856,25 +822,15 @@ function InterviewPage() {
         <Button type="submit" disabled={busy}>{busy ? "Requesting camera and starting…" : "Start 10-question video interview"} <Video size={16} /></Button>
       </form>
     </section> : <section className="content-card">
-<<<<<<< HEAD
-      <div className="card-heading"><div><h3>{current.target_role}</h3><p>{current.interview_type} · {current.difficulty_level || "medium"} difficulty · {current.questions_asked} of {current.question_limit} questions</p></div><Button variant="secondary" disabled={busy} onClick={leaveInterview}>Back to sessions</Button></div>
-=======
       <div className="card-heading"><div><h3>{current.target_role}</h3><p>{current.interview_type} · {current.difficulty_level || "medium"} difficulty · {current.questions_asked} of {current.question_limit} questions</p></div><div className="interview-controls">{current.status === "in_progress" && <Button variant="danger" disabled={busy} onClick={finishInterview}><LogOut size={15} />Quit &amp; get feedback</Button>}<Button variant="secondary" disabled={busy} onClick={leaveInterview}>Back to sessions</Button></div></div>
->>>>>>> 5a02bbd (intial commit)
       {current.status === "in_progress" && <div className="interview-video-layout"><div className="interview-video-frame">{mediaStream ? <video ref={videoRef} autoPlay playsInline muted aria-label="Your live camera preview" /> : <div className="interview-video-placeholder"><Video size={28} /><span>Camera preview unavailable</span></div>}{faceAway && <div className="camera-presence-warning" role="alert"><AlertTriangle size={20} /><div><b>Please stay in front of the camera</b><span>We can’t see you. Move back into the camera frame to continue.</span></div></div>}{mediaStream && <span className="camera-live"><span /> Camera on</span>}</div><div className="interview-video-note"><b>Private practice</b><p>Your camera stays in this browser and is never recorded or uploaded. Face presence is checked locally in your browser; no video frames are sent or saved. Question read-aloud uses only your browser’s speech voice. When you choose voice input, a short audio recording is sent to Gemini for transcription; TalentGraph does not persist the audio. Your text answer is saved with the session.</p></div></div>}
       <div className="interview-transcript" aria-live="polite">
         {transcript.map((turn, index) => <article className={`interview-turn interview-${turn.role}`} key={`${current.id}-${index}`}><b>{turn.role === "interviewer" ? "Interviewer" : "You"}</b><p>{turn.content}</p></article>)}
       </div>
       {nextIsCandidate && <><div className="interview-controls"><Button variant="secondary" onClick={readQuestionAloud}><Volume2 size={16} />{isSpeaking ? "Stop reading" : "Read question aloud"}</Button><Button variant={isRecording ? "danger" : "secondary"} disabled={busy} onClick={() => isRecording ? stopRecording() : startSpeechInput()}>{isRecording ? <MicOff size={16} /> : <Mic size={16} />}{isRecording ? "Stop recording" : "Record answer (max 5 min)"}</Button></div><form className="admin-form" onSubmit={submitAnswer}><label className="field"><span>Your transcribed or typed answer</span><textarea rows="5" maxLength="6000" required value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder={busy ? "Transcribing…" : "Record your answer or type it here…"} /></label><Button type="submit" disabled={busy || isRecording || !answer.trim()}>{busy ? "Thinking…" : current.questions_asked >= current.question_limit ? "Finish and get feedback" : "Submit answer"} <ArrowRight size={16} /></Button></form></>}
-<<<<<<< HEAD
-      {current.status === "completed" && current.final_feedback && <section className="content-card interview-feedback"><h3>Practice feedback</h3><p>{current.final_feedback.overall_feedback}</p><h4>What went well</h4><ul className="card-list">{current.final_feedback.strengths.map((item) => <li key={item}>{item}</li>)}</ul><h4>What to practice next</h4><ul className="card-list">{current.final_feedback.areas_to_improve.map((item) => <li key={item}>{item}</li>)}</ul><p><b>Tip:</b> {current.final_feedback.example_tip}</p></section>}
-    </section>}
-    {!current && interviews.length > 0 && <section className="content-card"><h3>Previous practice sessions</h3><div className="resource-list">{interviews.map((interview) => <article className="resource-row" key={interview.id}><div><b>{interview.target_role}</b><small>{interview.interview_type} · {interview.difficulty_level || "medium"} · {new Date(interview.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${interview.status}`}>{interview.status.replace("_", " ")}</span><Button variant="secondary" disabled={busy || interview.status === "failed"} onClick={() => openInterview(interview.id)}>{interview.status === "in_progress" ? "Continue" : "Review feedback"}</Button></article>)}</div></section>}
-=======
       {current.status === "completed" && current.final_feedback && <section className="content-card interview-feedback"><h3>Interview debrief</h3>{current.final_feedback.session_summary && <><h4>Session summary</h4><p>{current.final_feedback.session_summary}</p></>}<h4>Overall feedback</h4><p>{current.final_feedback.overall_feedback}</p>{current.final_feedback.strengths?.length > 0 && <><h4>What went well</h4><ul className="card-list">{current.final_feedback.strengths.map((item) => <li key={item}>{item}</li>)}</ul></>}{current.final_feedback.areas_to_improve?.length > 0 && <><h4>Growth areas</h4><ul className="card-list">{current.final_feedback.areas_to_improve.map((item) => <li key={item}>{item}</li>)}</ul></>}{current.final_feedback.development_suggestions?.length > 0 && <><h4>Development plan</h4><ul className="card-list">{current.final_feedback.development_suggestions.map((item) => <li key={item.focus}><b>{item.focus}:</b> {item.action}</li>)}</ul></>}<p><b>Practice tip:</b> {current.final_feedback.example_tip}</p></section>}
     </section>}
     {!current && interviews.length > 0 && <section className="content-card"><h3>Previous practice sessions</h3><div className="resource-list">{interviews.map((interview) => <article className="resource-row" key={interview.id}><div><b>{interview.target_role}</b><small>{interview.interview_type} · {interview.difficulty_level || "medium"} · {new Date(interview.created_at).toLocaleDateString()}</small></div><span className={`status-tag status-${interview.status}`}>{interview.status.replace("_", " ")}</span><div className="interview-session-actions"><Button variant="secondary" disabled={busy || interview.status === "failed"} onClick={() => openInterview(interview.id)}>{interview.status === "in_progress" ? "Continue" : "Review feedback"}</Button><Button variant="danger" aria-label={`Delete ${interview.target_role} mock interview`} disabled={busy} onClick={() => deleteInterview(interview)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></section>}
->>>>>>> 5a02bbd (intial commit)
   </div>;
 }
 
@@ -891,14 +847,10 @@ function ResourceContent({ resource, data, busy, onMessage, onRefresh }) {
   const items = Array.isArray(data) ? data : data?.items || [];
   if (resource === "careers") return <div className="resource-grid">{items.map((item) => <CareerCard key={item.id} item={item} onMessage={onMessage} />)}</div>;
   if (resource === "jobs") return <div className="resource-grid">{items.map((item) => <MatchCard key={item.id} item={item} onMessage={onMessage} />)}</div>;
-<<<<<<< HEAD
-  if (resource === "skill-gaps") return <div className="resource-grid">{items.map((item) => <SkillGapCard key={item.id} item={item} />)}</div>;
-=======
   if (resource === "skill-gaps") return <div className="resource-grid">{items.map((item) => <SkillGapCard key={item.id} item={item} onDelete={async (roadmap) => {
     if (!window.confirm("Permanently delete this skill roadmap? This cannot be undone.")) return;
     try { await api(`/skill-gaps/${roadmap.id}`, { method: "DELETE" }); onMessage("Skill roadmap deleted."); onRefresh(); } catch (error) { onMessage(error.message); }
   }} />)}</div>;
->>>>>>> 5a02bbd (intial commit)
   return <div className="resource-grid">{items.map((item) => <article className="content-card resource-card" key={item.id || item.career_title || item.title}><div className="resource-card-top"><span className="resource-icon"><BriefcaseBusiness size={18} /></span>{item.compatibility_score !== undefined && <span className="score-pill">{item.compatibility_score}% fit</span>}{item.suitability_score !== undefined && <span className="score-pill">{item.suitability_score}% fit</span>}</div><h3>{item.career_title || item.jobs?.title || item.title || item.name || item.type || "Insight"}</h3><p>{item.reasoning || item.explanation?.why_recommended || item.description || item.summary || item.body || item.status || "Evidence-based insights will appear when available."}</p>{item.company_name && <small className="company-line">{item.company_name} · {item.location || (item.is_remote ? "Remote" : "Location not specified")}</small>}{item.jobs && <small className="company-line">{item.jobs.company_name} · {item.jobs.location || (item.jobs.is_remote ? "Remote" : "Location not specified")}</small>}{Array.isArray(item.missing_skills) && <small>{item.missing_skills.length} skill gaps to explore</small>}{item.jobs?.official_apply_url && <a className="text-link" href={item.jobs.official_apply_url} target="_blank" rel="noopener noreferrer">View official posting <ArrowRight size={15} /></a>}{item.official_apply_url && <a className="text-link" href={item.official_apply_url} target="_blank" rel="noopener noreferrer">View official posting <ArrowRight size={15} /></a>}</article>)}</div>;
 }
 
@@ -935,15 +887,9 @@ function MatchCard({ item, onMessage }) {
   return <article className={`content-card resource-card ${dismissed ? "dismissed-card" : ""}`}><div className="resource-card-top"><span className="resource-icon"><BriefcaseBusiness size={18} /></span><span className="score-pill">{item.compatibility_score}% fit</span></div><h3><Link to={`/app/jobs/${item.job_id}`}>{job?.title || "Open role"}</Link></h3><small className="company-line">{job?.company_name} · {job?.location || (job?.is_remote ? "Remote" : "Location not specified")}</small>{job?.job_type && <small className="company-line">{job.job_type.replace("_", " ")}</small>}<div className="score-breakdown">{Object.entries(item.score_breakdown || {}).map(([label, score]) => <span key={label}>{label} <b>{score}%</b></span>)}</div>{explanation && <p>{explanation.why_recommended}</p>}{item.missing_skills?.length > 0 && <small className="company-line">Gaps: {item.missing_skills.join(", ")}</small>}{item.eligibility_flags?.length > 0 && <small className="company-line">Check eligibility: {item.eligibility_flags.map((flag) => flag.constraint).join(", ")}</small>}<div className="card-actions">{job?.official_apply_url && <a className="button button-primary" href={job.official_apply_url} target="_blank" rel="noopener noreferrer">Official apply link <ArrowRight size={14} /></a>}<Button variant="secondary" disabled={busy} onClick={() => updateMatch({ is_saved: !saved })}>{saved ? "Saved" : "Save"}</Button><Button variant="secondary" disabled={busy} onClick={explain}>Why this match?</Button><Button variant="secondary" disabled={busy} onClick={() => updateMatch({ is_dismissed: true })}>Dismiss</Button></div></article>;
 }
 
-<<<<<<< HEAD
-function SkillGapCard({ item }) {
-  const report = item.report || {};
-  return <article className="content-card resource-card"><div className="resource-card-top"><span className="resource-icon"><Target size={18} /></span><span className="status-tag">{item.target_type} roadmap</span></div><h3>{report.roadmap?.[0]?.goals?.[0] || "Your learning roadmap"}</h3><small className="company-line">Created {new Date(item.created_at).toLocaleDateString()}</small>{report.missing_skills?.length > 0 && <p><b>Priority gaps:</b> {report.missing_skills.slice(0, 5).map((gap) => gap.skill).join(", ")}</p>}{report.recommended_projects?.map((project) => <small className="company-line" key={project.title}>Project: {project.title}</small>)}<div className="roadmap-preview">{(report.roadmap || []).map((phase) => <div key={phase.phase}><b>{phase.timeframe}</b><small>{phase.milestones?.[0] || phase.phase}</small></div>)}</div></article>;
-=======
 function SkillGapCard({ item, onDelete }) {
   const report = item.report || {};
   return <article className="content-card resource-card"><div className="resource-card-top"><span className="resource-icon"><Target size={18} /></span><span className="status-tag">{item.target_type} roadmap</span></div><h3>{report.roadmap?.[0]?.goals?.[0] || "Your learning roadmap"}</h3><small className="company-line">Created {new Date(item.created_at).toLocaleDateString()}</small>{report.missing_skills?.length > 0 && <p><b>Priority gaps:</b> {report.missing_skills.slice(0, 5).map((gap) => gap.skill).join(", ")}</p>}{report.recommended_projects?.map((project) => <small className="company-line" key={project.title}>Project: {project.title}</small>)}<div className="roadmap-preview">{(report.roadmap || []).map((phase) => <div key={phase.phase}><b>{phase.timeframe}</b><small>{phase.milestones?.[0] || phase.phase}</small></div>)}</div><div className="card-actions"><Button variant="danger" aria-label="Delete this skill roadmap" onClick={() => onDelete(item)}><Trash2 size={15} /><span>Delete roadmap</span></Button></div></article>;
->>>>>>> 5a02bbd (intial commit)
 }
 
 function ResourceDetailPage({ resource, session }) {
@@ -1005,15 +951,12 @@ function EvidenceContent({ data }) {
   return <div className="evidence-grid">{[["Supported skills", data.supported_skills], ["Unsupported claims", data.unsupported_skills], ["Inconsistencies", data.inconsistencies], ["Missing information", data.missing_information], ["Needs assessment", data.needs_assessment]].map(([title, entries]) => <section className="content-card" key={title}><h3>{title}</h3>{entries?.length ? <ul>{entries.map((entry, index) => <li key={`${title}-${index}`}>{typeof entry === "string" ? entry : entry.skill ? `${entry.skill}: ${entry.note || entry.suggested_assessment || ""}` : entry.description}</li>)}</ul> : <p>No items to display.</p>}</section>)}</div>;
 }
 
-<<<<<<< HEAD
-=======
 function notificationTone(type) {
   if (["new_match", "profile_unlock", "job_reopened", "profile_ready"].includes(type)) return "positive";
   if (type === "system") return "negative";
   return "neutral";
 }
 
->>>>>>> 5a02bbd (intial commit)
 function NotificationContent({ data, onMessage }) {
   const [notifications, setNotifications] = useState(data);
   const markAllRead = async () => {
@@ -1032,11 +975,7 @@ function NotificationContent({ data, onMessage }) {
       onMessage("Notification deleted.");
     } catch (error) { onMessage(error.message); }
   };
-<<<<<<< HEAD
-  return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className="resource-row notification-row" key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small></div><div className="notification-actions">{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}<Button variant="danger" aria-label={`Delete ${item.title} notification`} onClick={() => deleteNotification(item)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></>;
-=======
   return <><div className="notification-tools"><Button variant="secondary" onClick={markAllRead}>Mark all as read</Button></div><div className="resource-list">{notifications.map((item) => <article className={`resource-row notification-row notification-${notificationTone(item.type)}`} key={item.id}><span className="resource-icon"><Bell size={18} /></span><div><b>{item.title}</b><small>{item.body || item.type} · {new Date(item.created_at).toLocaleString()}</small></div><div className="notification-actions">{!item.is_read && <Button variant="secondary" onClick={async () => { try { await api(`/notifications/${item.id}/read`, { method: "PATCH" }); setNotifications((rows) => rows.map((row) => row.id === item.id ? { ...row, is_read: true } : row)); window.dispatchEvent(new Event("talentgraph-notifications-updated")); onMessage("Notification marked as read."); } catch (error) { onMessage(error.message); } }}>Mark read</Button>}<Button variant="danger" aria-label={`Delete ${item.title} notification`} onClick={() => deleteNotification(item)}><Trash2 size={15} /><span>Delete</span></Button></div></article>)}</div></>;
->>>>>>> 5a02bbd (intial commit)
 }
 
 function SkillGapForm({ onMessage, onCreated }) {
